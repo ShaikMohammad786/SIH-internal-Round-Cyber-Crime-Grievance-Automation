@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .warning { background-color: #fff3cd; border-color: #ffeaa7; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Token Debug Tool</h1>
+    
+    <div class="debug-section">
+        <h3>Current Token Status</h3>
+        <div id="tokenStatus"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>Token Details</h3>
+        <div id="tokenDetails"></div>
+    </div>
+    
+    <div class="debug-section">
+        <h3>Actions</h3>
+        <button onclick="checkToken()">Check Token</button>
+        <button onclick="clearToken()">Clear Token</button>
+        <button onclick="testAPI()">Test API</button>
+    </div>
+    
+    <div class="debug-section">
+        <h3>API Test Results</h3>
+        <div id="apiResults"></div>
+    </div>
+
+    <script>
+        function checkToken() {
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+            const session = localStorage.getItem('fraudlens_session');
+            
+            const statusDiv = document.getElementById('tokenStatus');
+            const detailsDiv = document.getElementById('tokenDetails');
+            
+            if (!token || token === 'null' || token === 'undefined') {
+                statusDiv.innerHTML = '<div class="error">❌ No token found</div>';
+                detailsDiv.innerHTML = '<pre>No token data available</pre>';
+                return;
+            }
+            
+            statusDiv.innerHTML = '<div class="success">✅ Token found</div>';
+            
+            try {
+                const parts = token.split('.');
+                if (parts.length !== 3) {
+                    detailsDiv.innerHTML = '<div class="error">❌ Invalid JWT format</div>';
+                    return;
+                }
+                
+                const header = JSON.parse(atob(parts[0]));
+                const payload = JSON.parse(atob(parts[1]));
+                const currentTime = Date.now() / 1000;
+                
+                let status = 'valid';
+                if (payload.exp && payload.exp < currentTime) {
+                    status = 'expired';
+                }
+                
+                detailsDiv.innerHTML = `
+                    <div class="${status === 'valid' ? 'success' : 'error'}">
+                        ${status === 'valid' ? '✅' : '❌'} Token is ${status}
+                    </div>
+                    <pre>Header: ${JSON.stringify(header, null, 2)}</pre>
+                    <pre>Payload: ${JSON.stringify(payload, null, 2)}</pre>
+                    <pre>Issued: ${new Date(payload.iat * 1000)}</pre>
+                    <pre>Expires: ${payload.exp ? new Date(payload.exp * 1000) : 'No expiration'}</pre>
+                    <pre>User: ${user || 'Not found'}</pre>
+                    <pre>Session: ${session || 'Not found'}</pre>
+                `;
+                
+            } catch (error) {
+                detailsDiv.innerHTML = `<div class="error">❌ Error parsing token: ${error.message}</div>`;
+            }
+        }
+        
+        function clearToken() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('fraudlens_session');
+            checkToken();
+        }
+        
+        async function testAPI() {
+            const resultsDiv = document.getElementById('apiResults');
+            resultsDiv.innerHTML = '<div class="warning">🔄 Testing API...</div>';
+            
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    resultsDiv.innerHTML = '<div class="error">❌ No token available for API test</div>';
+                    return;
+                }
+                
+                const response = await fetch('http://localhost:5000/api/admin/cases', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultsDiv.innerHTML = `
+                        <div class="success">✅ API call successful</div>
+                        <pre>Status: ${response.status}</pre>
+                        <pre>Cases found: ${data.data?.cases?.length || 0}</pre>
+                    `;
+                } else {
+                    const errorData = await response.json();
+                    resultsDiv.innerHTML = `
+                        <div class="error">❌ API call failed</div>
+                        <pre>Status: ${response.status}</pre>
+                        <pre>Message: ${errorData.message}</pre>
+                    `;
+                }
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="error">❌ Network error</div>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+        
+        // Check token on page load
+        checkToken();
+    </script>
+</body>
+</html>
