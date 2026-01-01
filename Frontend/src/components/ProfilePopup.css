@@ -198,7 +198,6 @@
     gap: 4px;
   }
 }
-
 @media (max-width: 480px) {
   .profile-popup {
     width: 260px;
@@ -207,4 +206,5 @@
     max-width: calc(100vw - 10px);
   }
 }
+
 
