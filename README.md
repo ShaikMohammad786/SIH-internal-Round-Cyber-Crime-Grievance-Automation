@@ -1,31 +1,6 @@
 # 🛡️ FraudLens - Cyber Crime Grievance Automation Platform
 
-[![Node.js](https://img.shields.io/badge/Node.js-v18+-green.svg)](https://nodejs.org/)
-[![React](https://img.shields.io/badge/React-v19.1-blue.svg)](https://reactjs.org/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-v6.20-green.svg)](https://www.mongodb.com/)
-[![Express](https://img.shields.io/badge/Express-v5.1-lightgrey.svg)](https://expressjs.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
 > **Smart India Hackathon (SIH) Project** - An intelligent, automated platform for streamlining cyber-crime fraud reporting, legal document generation, and multi-stakeholder case management.
-
----
-
-## 📋 Table of Contents
-
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [Technology Stack](#-technology-stack)
-- [System Architecture](#-system-architecture)
-- [Project Structure](#-project-structure)
-- [Installation & Setup](#-installation--setup)
-- [Usage Guide](#-usage-guide)
-- [API Documentation](#-api-documentation)
-- [Database Schema](#-database-schema)
-- [Workflow Automation](#-workflow-automation)
-- [Security Features](#-security-features)
-
-
----
 
 ## 🎯 Overview
 
@@ -613,4 +588,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ⭐ Star this repository if you find it helpful!
 
 </div>
+
 
