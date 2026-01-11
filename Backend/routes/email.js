@@ -43,7 +43,7 @@ Fraud Investigation Team
 Cyber Crime Division
     `
   },
-  
+
   bank: {
     subject: 'URGENT: Banking Fraud Complaint - Case ID: ${caseDetails.caseId}',
     template: (scammerDetails, caseDetails) => `
@@ -84,7 +84,7 @@ Fraud Investigation Team
 Cyber Crime Division
     `
   },
-  
+
   nodal: {
     subject: 'URGENT: Comprehensive Fraud Case - Nodal Officer - Case ID: ${caseDetails.caseId}',
     template: (scammerDetails, caseDetails) => `
@@ -139,12 +139,12 @@ async function getEmailRecipient(db, emailType) {
   } catch (error) {
     console.error('Error getting email recipient:', error);
   }
-  
-  // Fallback to default recipients
+
+  // Fallback to default recipients from environment variables
   const defaultRecipients = {
-    telecom: { email: 'telecom@fraud.gov.in', name: 'Telecom Department' },
-    bank: { email: 'banking@fraud.gov.in', name: 'Banking Authority' },
-    nodal: { email: 'nodal@fraud.gov.in', name: 'Nodal Officer' }
+    telecom: { email: process.env.TELECOM_EMAIL || 'telecom@fraud.gov.in', name: 'Telecom Department' },
+    bank: { email: process.env.BANKING_EMAIL || 'banking@fraud.gov.in', name: 'Banking Authority' },
+    nodal: { email: process.env.NODAL_EMAIL || 'nodal@fraud.gov.in', name: 'Nodal Officer' }
   };
   return defaultRecipients[emailType] || { email: 'admin@fraud.gov.in', name: 'Admin' };
 }
@@ -152,7 +152,7 @@ async function getEmailRecipient(db, emailType) {
 // Helper function to generate 91 CrPC content
 function generate91CrPCContent(caseDetails, scammerDetails, userDetails, userProfile) {
   const currentDate = new Date().toLocaleDateString('en-IN');
-  
+
   return `
 IN THE COURT OF THE CHIEF JUDICIAL MAGISTRATE
 CYBER CRIME DIVISION
@@ -170,9 +170,9 @@ The undersigned respectfully submits as follows:
 
 2. VICTIM DETAILS:
    Name: ${userDetails?.name || 'Unknown'}
-   Address: ${userProfile?.addressInfo?.streetAddress ? 
-     `${userProfile.addressInfo.streetAddress}, ${userProfile.addressInfo.city}, ${userProfile.addressInfo.state} ${userProfile.addressInfo.postalCode}` :
-     userDetails?.address || 'Address not provided'}
+   Address: ${userProfile?.addressInfo?.streetAddress ?
+      `${userProfile.addressInfo.streetAddress}, ${userProfile.addressInfo.city}, ${userProfile.addressInfo.state} ${userProfile.addressInfo.postalCode}` :
+      userDetails?.address || 'Address not provided'}
    Phone: ${userDetails?.phone || 'Not provided'}
    Email: ${userDetails?.email || 'Not provided'}
    Aadhaar: ${userProfile?.governmentIds?.aadhaarNumber || 'Not provided'}
@@ -240,8 +240,8 @@ router.post('/send', authenticateToken, async (req, res) => {
     }
 
     // Get case details
-    const caseDetails = await db.collection('cases').findOne({ 
-      _id: new ObjectId(caseId) 
+    const caseDetails = await db.collection('cases').findOne({
+      _id: new ObjectId(caseId)
     });
 
     if (!caseDetails) {
@@ -252,8 +252,8 @@ router.post('/send', authenticateToken, async (req, res) => {
     }
 
     // Get scammer details
-    const scammerDetails = await db.collection('scammers').findOne({ 
-      _id: new ObjectId(scammerId) 
+    const scammerDetails = await db.collection('scammers').findOne({
+      _id: new ObjectId(scammerId)
     });
 
     if (!scammerDetails) {
@@ -268,7 +268,7 @@ router.post('/send', authenticateToken, async (req, res) => {
     // Get user details for email templates
     const userDetails = await db.collection('users').findOne({ _id: caseDetails.userId });
     const userProfile = await db.collection('userProfiles').findOne({ userId: caseDetails.userId });
-    
+
     // Enhance case details with user information
     const enhancedCaseDetails = {
       ...caseDetails,
@@ -276,7 +276,7 @@ router.post('/send', authenticateToken, async (req, res) => {
         name: userDetails?.name || 'Unknown',
         email: userDetails?.email || 'Not provided',
         phone: userDetails?.phone || 'Not provided',
-        address: userProfile?.addressInfo?.streetAddress ? 
+        address: userProfile?.addressInfo?.streetAddress ?
           `${userProfile.addressInfo.streetAddress}, ${userProfile.addressInfo.city}, ${userProfile.addressInfo.state} ${userProfile.addressInfo.postalCode}` :
           userDetails?.address || 'Address not provided'
       }
@@ -286,17 +286,42 @@ router.post('/send', authenticateToken, async (req, res) => {
     const emailConfig = await db.collection('emailConfig').findOne({ type: 'default' });
     const templates = emailConfig?.templates || emailTemplates;
     const recipients = emailConfig?.recipients || {};
-    
+
     // Send emails based on scammer details
+    // Configure transporter
+    let transporter = null;
+    if (process.env.SMTP_HOST) {
+      const nodemailer = require('nodemailer');
+      const isGmail = process.env.SMTP_HOST.includes('gmail');
+      console.log(`Creating transporter for ${process.env.SMTP_HOST}${isGmail ? ' (via Gmail service)' : ''}`);
+
+      const config = {
+        service: isGmail ? 'gmail' : undefined,
+        host: isGmail ? undefined : process.env.SMTP_HOST,
+        port: isGmail ? undefined : (parseInt(process.env.SMTP_PORT) || 587),
+        secure: isGmail ? undefined : (process.env.SMTP_PORT === '465'),
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS
+        }
+      };
+
+      if (!isGmail) {
+        config.tls = { rejectUnauthorized: false };
+      }
+
+      transporter = nodemailer.createTransport(config);
+    }
+
     for (const emailType of emailTypes) {
       if (templates[emailType]) {
         const template = templates[emailType];
         const recipient = await getEmailRecipient(db, emailType);
-        
+
         // Generate email content with placeholders
         let emailContent = template.body || template.template(scammerDetails, enhancedCaseDetails);
         let subject = template.subject || `Fraud Complaint - ${emailType}`;
-        
+
         // Replace placeholders in content and subject
         const placeholders = {
           '{caseId}': enhancedCaseDetails.caseId,
@@ -317,14 +342,34 @@ router.post('/send', authenticateToken, async (req, res) => {
           '{evidenceTypes}': scammerDetails.evidenceTypes?.join(', ') || 'Screenshots and documents',
           '{evidenceCount}': enhancedCaseDetails.evidence?.length || 0
         };
-        
+
         // Replace all placeholders
         Object.keys(placeholders).forEach(placeholder => {
           emailContent = emailContent.replace(new RegExp(placeholder, 'g'), placeholders[placeholder]);
           subject = subject.replace(new RegExp(placeholder, 'g'), placeholders[placeholder]);
         });
-        
-        // Store email in database (in real implementation, send actual email)
+
+        // Send actual email if transporter exists
+        let emailStatus = 'sent';
+        if (transporter) {
+          try {
+            console.log(`Sending real email to ${recipient.email}...`);
+            const info = await transporter.sendMail({
+              from: process.env.SMTP_USER || '"FraudLens System" <system@fraudlens.com>',
+              to: recipient.email,
+              subject: subject,
+              text: emailContent
+            });
+            console.log(`✅ Email sent successfully to ${recipient.email}. MessageId: ${info.messageId}`);
+          } catch (err) {
+            console.error(`❌ Failed to send email to ${recipient.email}:`, err);
+            emailStatus = 'failed';
+          }
+        } else {
+          console.log('⚠️ SMTP not configured, skipping actual email send.');
+        }
+
+        // Store email in database
         const emailRecord = {
           caseId: new ObjectId(caseId),
           scammerId: new ObjectId(scammerId),
@@ -333,40 +378,50 @@ router.post('/send', authenticateToken, async (req, res) => {
           content: emailContent,
           sentAt: new Date(),
           sentBy: req.user.userId,
-          status: 'sent', // sent, failed, pending
+          status: emailStatus,
           recipient: recipient,
           priority: recipient.priority || 'high',
           department: recipient.department || emailType
         };
 
         await db.collection('sent_emails').insertOne(emailRecord);
-        sentEmails.push(emailType);
+        if (emailStatus === 'sent') {
+          sentEmails.push(emailType);
+        }
       }
     }
 
     // Update case status to evidence_collected
     await db.collection('cases').updateOne(
       { _id: new ObjectId(caseId) },
-      { 
-        $set: { 
-          status: 'evidence_collected',
+      {
+        $set: {
+          status: 'emails_sent',
+          'flow.currentStep': 4,
+          'flow.steps.3.status': 'completed',
+          'flow.steps.3.completedAt': new Date(),
           updatedAt: new Date()
         }
       }
     );
 
-    // Add timeline entry
-    await db.collection('case_timeline').insertOne({
-      caseId: new ObjectId(caseId),
-      stage: 'Evidence Collected',
-      status: 'completed',
-      description: `Evidence collected and emails sent to: ${sentEmails.join(', ')}`,
-      completedAt: new Date().toISOString(),
-      icon: '📋',
-      createdAt: new Date(),
-      adminAction: true,
-      adminName: req.user?.name || 'Admin'
-    });
+    // Add/Update timeline entry
+    await db.collection('case_timeline').updateOne(
+      { caseId: new ObjectId(caseId), stage: 'Authorities Notified' },
+      {
+        $set: {
+          status: 'completed',
+          description: `Legal notices and documents sent to: ${sentEmails.join(', ')}`,
+          completedAt: new Date().toISOString(),
+          icon: '📧',
+          updatedAt: new Date(),
+          adminAction: true,
+          adminName: req.user?.name || 'Admin',
+          action: 'send_emails'
+        }
+      },
+      { upsert: true }
+    );
 
     res.json({
       success: true,
@@ -398,11 +453,11 @@ router.post('/generate-91crpc', authenticateToken, async (req, res) => {
     }
 
     // Get case and scammer details
-    const caseDetails = await db.collection('cases').findOne({ 
-      _id: new ObjectId(caseId) 
+    const caseDetails = await db.collection('cases').findOne({
+      _id: new ObjectId(caseId)
     });
-    const scammerDetails = await db.collection('scammers').findOne({ 
-      _id: new ObjectId(scammerId) 
+    const scammerDetails = await db.collection('scammers').findOne({
+      _id: new ObjectId(scammerId)
     });
 
     if (!caseDetails || !scammerDetails) {
@@ -415,7 +470,7 @@ router.post('/generate-91crpc', authenticateToken, async (req, res) => {
     // Get comprehensive user details
     const userDetails = await db.collection('users').findOne({ _id: caseDetails.userId });
     const userProfile = await db.collection('userProfiles').findOne({ userId: caseDetails.userId });
-    
+
     // Generate 91 CrPC document
     const crpcDocument = {
       caseId: caseDetails.caseId,
@@ -424,7 +479,7 @@ router.post('/generate-91crpc', authenticateToken, async (req, res) => {
         name: userDetails?.name || 'Unknown',
         email: userDetails?.email || 'Not provided',
         phone: userDetails?.phone || 'Not provided',
-        address: userProfile?.addressInfo?.streetAddress ? 
+        address: userProfile?.addressInfo?.streetAddress ?
           `${userProfile.addressInfo.streetAddress}, ${userProfile.addressInfo.city}, ${userProfile.addressInfo.state} ${userProfile.addressInfo.postalCode}` :
           userDetails?.address || 'Address not provided',
         dateOfBirth: userProfile?.personalInfo?.dateOfBirth || 'Not provided',
@@ -468,26 +523,34 @@ router.post('/generate-91crpc', authenticateToken, async (req, res) => {
     // Update case status
     await db.collection('cases').updateOne(
       { _id: new ObjectId(caseId) },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'crpc_generated',
+          'flow.currentStep': 3,
+          'flow.steps.2.status': 'completed',
+          'flow.steps.2.completedAt': new Date(),
           updatedAt: new Date()
         }
       }
     );
 
-    // Add timeline entry
-    await db.collection('case_timeline').insertOne({
-      caseId: new ObjectId(caseId),
-      stage: '91 CrPC',
-      status: 'completed',
-      description: '91 CrPC document generated and sent to authorities',
-      completedAt: new Date().toISOString(),
-      icon: '⚖️',
-      createdAt: new Date(),
-      adminAction: true,
-      adminName: req.user?.name || 'Admin'
-    });
+    // Add/Update timeline entry
+    await db.collection('case_timeline').updateOne(
+      { caseId: new ObjectId(caseId), stage: '91 CrPC Generated' },
+      {
+        $set: {
+          status: 'completed',
+          description: 'Legal document generated under Section 91 of CrPC and queued for authorities.',
+          completedAt: new Date().toISOString(),
+          icon: '⚖️',
+          updatedAt: new Date(),
+          adminAction: true,
+          adminName: req.user?.name || 'Admin',
+          action: 'generate_crpc'
+        }
+      },
+      { upsert: true }
+    );
 
     res.json({
       success: true,
@@ -510,8 +573,26 @@ router.get('/case/:caseId', authenticateToken, async (req, res) => {
     const { caseId } = req.params;
     const db = req.app.locals.db;
 
+    // Find the case first to get the unified ObjectId
+    let caseDoc;
+    if (ObjectId.isValid(caseId) && caseId.length === 24) {
+      caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
+    }
+
+    if (!caseDoc) {
+      caseDoc = await db.collection('cases').findOne({ caseId: caseId });
+    }
+
+    if (!caseDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'Case not found'
+      });
+    }
+
+    // Always fetch by the document's internal _id
     const emails = await db.collection('sent_emails').find({
-      caseId: new ObjectId(caseId)
+      caseId: caseDoc._id
     }).sort({ sentAt: -1 }).toArray();
 
     res.json({

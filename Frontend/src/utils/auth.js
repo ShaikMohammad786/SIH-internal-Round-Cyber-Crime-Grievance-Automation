@@ -24,10 +24,15 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     console.error('API Error:', error);
-    
+
     if (error.response?.status === 401) {
+      // Don't redirect if this is a login attempt
+      if (error.config?.url?.includes('/auth/login')) {
+        return Promise.reject(error);
+      }
+
       console.log('Unauthorized access - token may be expired or invalid');
-      
+
       // Check if token exists and is valid format
       const token = localStorage.getItem('token');
       if (!token || token === 'null' || token === 'undefined') {
@@ -55,7 +60,7 @@ api.interceptors.response.use(
     } else if (!error.response) {
       console.error('Network error:', error.message);
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -66,23 +71,23 @@ export const validateToken = () => {
   if (!token || token === 'null' || token === 'undefined') {
     return false;
   }
-  
+
   try {
     // Basic JWT token validation (check if it's a valid JWT format)
     const parts = token.split('.');
     if (parts.length !== 3) {
       return false;
     }
-    
+
     // Check if token is expired (basic check)
     const payload = JSON.parse(atob(parts[1]));
     const currentTime = Date.now() / 1000;
-    
+
     if (payload.exp && payload.exp < currentTime) {
       console.log('Token has expired');
       return false;
     }
-    
+
     return true;
   } catch (error) {
     console.log('Invalid token format');
@@ -96,7 +101,7 @@ export const clearSessionAndRedirect = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
   localStorage.removeItem('fraudlens_session');
-  
+
   // Only redirect if not already on login page
   if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
     window.location.href = '/login';
@@ -109,14 +114,14 @@ export const authAPI = {
     try {
       // Validate input
       if ((!email && !username) || !password) {
-        return { 
-          success: false, 
-          message: 'Email/username and password are required' 
+        return {
+          success: false,
+          message: 'Email/username and password are required'
         };
       }
 
       const response = await api.post('/auth/login', { email, username, password });
-      
+
       if (response.data.success) {
         // Create session and track login
         createUserSession(response.data.user, response.data.token);
@@ -125,11 +130,11 @@ export const authAPI = {
           userAgent: navigator.userAgent
         });
       }
-      
+
       return response.data;
     } catch (error) {
       console.error('Login error:', error);
-      
+
       let message = 'Login failed';
       if (error.response?.data?.message) {
         message = error.response.data.message;
@@ -140,10 +145,10 @@ export const authAPI = {
       } else if (!error.response) {
         message = 'Network error. Please check your connection.';
       }
-      
-      return { 
-        success: false, 
-        message 
+
+      return {
+        success: false,
+        message
       };
     }
   },
@@ -152,14 +157,14 @@ export const authAPI = {
     try {
       // Validate input
       if (!userData.email || !userData.password || !userData.name) {
-        return { 
-          success: false, 
-          message: 'Name, email, and password are required' 
+        return {
+          success: false,
+          message: 'Name, email, and password are required'
         };
       }
 
       const response = await api.post('/auth/register', userData);
-      
+
       if (response.data.success) {
         // Create session and track registration
         createUserSession(response.data.user, response.data.token);
@@ -168,11 +173,11 @@ export const authAPI = {
           userAgent: navigator.userAgent
         });
       }
-      
+
       return response.data;
     } catch (error) {
       console.error('Registration error:', error);
-      
+
       let message = 'Registration failed';
       if (error.response?.data?.message) {
         message = error.response.data.message;
@@ -185,10 +190,10 @@ export const authAPI = {
       } else if (!error.response) {
         message = 'Network error. Please check your connection.';
       }
-      
-      return { 
-        success: false, 
-        message 
+
+      return {
+        success: false,
+        message
       };
     }
   },
@@ -199,7 +204,7 @@ export const authAPI = {
       return response.data;
     } catch (error) {
       console.error('Get current user error:', error);
-      
+
       let message = 'Failed to get user data';
       if (error.response?.data?.message) {
         message = error.response.data.message;
@@ -210,10 +215,10 @@ export const authAPI = {
       } else if (!error.response) {
         message = 'Network error. Please check your connection.';
       }
-      
-      return { 
-        success: false, 
-        message 
+
+      return {
+        success: false,
+        message
       };
     }
   },
@@ -229,7 +234,7 @@ export const authAPI = {
           page: window.location.pathname
         });
       }
-      
+
       clearUserSession();
       window.location.href = '/login';
     } catch (error) {
@@ -249,7 +254,7 @@ const USER_HISTORY_KEY = 'fraudlens_history';
 export const isAuthenticated = () => {
   const token = localStorage.getItem('token');
   if (!token) return false;
-  
+
   // Check if token is expired
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
@@ -268,6 +273,20 @@ export const getToken = () => {
   return localStorage.getItem('token');
 };
 
+// Update stored user data
+export const updateUser = (userData) => {
+  if (!userData) return;
+
+  localStorage.setItem('user', JSON.stringify(userData));
+
+  // Also update session if it exists
+  const session = getCurrentSession();
+  if (session) {
+    session.user = { ...session.user, ...userData };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+};
+
 // Session Management Functions
 export const createUserSession = (userData, token) => {
   const session = {
@@ -277,16 +296,16 @@ export const createUserSession = (userData, token) => {
     lastActivity: new Date().toISOString(),
     sessionId: generateSessionId()
   };
-  
+
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   localStorage.setItem('token', token);
   localStorage.setItem('user', JSON.stringify(userData));
-  
+
   // Initialize user history if not exists
   if (!getUserHistory(userData.id)) {
     initializeUserHistory(userData.id);
   }
-  
+
   return session;
 };
 
@@ -329,7 +348,7 @@ export const initializeUserHistory = (userId) => {
     lastLogin: new Date().toISOString(),
     totalSessions: 0
   };
-  
+
   const historyKey = `${USER_HISTORY_KEY}_${userId}`;
   localStorage.setItem(historyKey, JSON.stringify(history));
   return history;
@@ -337,22 +356,22 @@ export const initializeUserHistory = (userId) => {
 
 export const addLoginHistory = (userId, loginData) => {
   const history = getUserHistory(userId) || initializeUserHistory(userId);
-  
+
   history.loginHistory.push({
     timestamp: new Date().toISOString(),
     ip: loginData.ip || 'unknown',
     userAgent: loginData.userAgent || navigator.userAgent,
     success: true
   });
-  
+
   // Keep only last 10 login attempts
   if (history.loginHistory.length > 10) {
     history.loginHistory = history.loginHistory.slice(-10);
   }
-  
+
   history.lastLogin = new Date().toISOString();
   history.totalSessions += 1;
-  
+
   const historyKey = `${USER_HISTORY_KEY}_${userId}`;
   localStorage.setItem(historyKey, JSON.stringify(history));
 };
@@ -360,19 +379,19 @@ export const addLoginHistory = (userId, loginData) => {
 export const addActivityHistory = (userId, activity) => {
   const history = getUserHistory(userId);
   if (!history) return;
-  
+
   history.activityHistory.push({
     timestamp: new Date().toISOString(),
     action: activity.action,
     details: activity.details,
     page: activity.page || window.location.pathname
   });
-  
+
   // Keep only last 50 activities
   if (history.activityHistory.length > 50) {
     history.activityHistory = history.activityHistory.slice(-50);
   }
-  
+
   const historyKey = `${USER_HISTORY_KEY}_${userId}`;
   localStorage.setItem(historyKey, JSON.stringify(history));
 };
@@ -380,9 +399,9 @@ export const addActivityHistory = (userId, activity) => {
 export const updateUserPreferences = (userId, preferences) => {
   const history = getUserHistory(userId);
   if (!history) return;
-  
+
   history.preferences = { ...history.preferences, ...preferences };
-  
+
   const historyKey = `${USER_HISTORY_KEY}_${userId}`;
   localStorage.setItem(historyKey, JSON.stringify(history));
 };

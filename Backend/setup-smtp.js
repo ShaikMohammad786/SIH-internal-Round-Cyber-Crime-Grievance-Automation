@@ -1,6 +1,9 @@
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -20,8 +23,8 @@ console.log('4. Custom SMTP Server\n');
 
 rl.question('Select SMTP provider (1-4): ', (provider) => {
   let smtpConfig = {};
-  
-  switch(provider) {
+
+  switch (provider) {
     case '1':
       smtpConfig = {
         host: 'smtp.gmail.com',
@@ -61,16 +64,16 @@ rl.question('Select SMTP provider (1-4): ', (provider) => {
       rl.close();
       return;
   }
-  
+
   continueSetup();
-  
+
   function continueSetup() {
     rl.question(`\nEnter your email address: `, (email) => {
       rl.question(`Enter your email password (or App Password for Gmail): `, (password) => {
         rl.question(`\nEnter Telecom Authority email (default: telecom@fraud.gov.in): `, (telecomEmail) => {
           rl.question(`Enter Banking Authority email (default: banking@fraud.gov.in): `, (bankingEmail) => {
             rl.question(`Enter Nodal Officer email (default: nodal@fraud.gov.in): `, (nodalEmail) => {
-              
+
               // Create .env content
               const envContent = `# Database Configuration
 MONGODB_URI=mongodb://localhost:27017
@@ -85,9 +88,9 @@ SMTP_USER=${email}
 SMTP_PASS=${password}
 
 # Email Recipients
-TELECOM_EMAIL=${telecomEmail || 'telecom@fraud.gov.in'}
-BANKING_EMAIL=${bankingEmail || 'banking@fraud.gov.in'}
-NODAL_EMAIL=${nodalEmail || 'nodal@fraud.gov.in'}
+TELECOM_EMAIL=${process.env.TELECOM_EMAIL || 'telecom@fraud.gov.in'}
+BANKING_EMAIL=${process.env.BANKING_EMAIL || 'banking@fraud.gov.in'}
+NODAL_EMAIL=${process.env.NODAL_EMAIL || 'nodal@fraud.gov.in'}
 
 # Server Configuration
 PORT=5000
@@ -95,15 +98,15 @@ NODE_ENV=development`;
 
               // Write .env file
               fs.writeFileSync('.env', envContent);
-              
+
               console.log('\n✅ Configuration saved to .env file!');
               console.log('\n🧪 Testing SMTP configuration...');
-              
+
               // Test the configuration
               const nodemailer = require('nodemailer');
               require('dotenv').config();
-              
-              const transporter = nodemailer.createTransporter({
+
+              const transporter = nodemailer.createTransport({
                 host: process.env.SMTP_HOST,
                 port: parseInt(process.env.SMTP_PORT),
                 secure: false,
@@ -115,7 +118,7 @@ NODE_ENV=development`;
                   rejectUnauthorized: false
                 }
               });
-              
+
               transporter.verify()
                 .then(() => {
                   console.log('✅ SMTP configuration is working!');

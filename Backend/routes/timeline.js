@@ -1,36 +1,37 @@
 const express = require('express');
 const { ObjectId } = require('mongodb');
 const { authenticateToken } = require('./auth');
+const { sendEmailsToAuthorities: sendRealEmails } = require('../services/emailService');
 const router = express.Router();
 
 // Timeline stages configuration
 const TIMELINE_STAGES = {
   REPORT_SUBMITTED: {
-    id: 'report_submitted',
+    id: 'submitted',
     name: 'Report Submitted',
     description: 'Initial fraud report received and logged',
     icon: '📄',
     userVisible: true,
-    adminActions: ['verify_details', 'request_more_info'],
-    nextStages: ['information_verified', 'rejected']
+    adminActions: ['verify_details'],
+    nextStages: ['verified', 'rejected']
   },
   INFORMATION_VERIFIED: {
-    id: 'information_verified',
+    id: 'verified',
     name: 'Information Verified',
     description: 'User details and scammer information verified',
     icon: '🔍',
     userVisible: true,
-    adminActions: ['generate_crpc', 'investigate_scammer'],
-    nextStages: ['crpc_generated', 'under_investigation']
+    adminActions: ['generate_crpc'],
+    nextStages: ['crpc_generated']
   },
   CRPC_GENERATED: {
     id: 'crpc_generated',
     name: '91 CrPC Generated',
-    description: 'Legal document generated and sent to authorities',
-    icon: '📋',
+    description: 'Legal document generated under Section 91 of CrPC',
+    icon: '📜',
     userVisible: true,
-    adminActions: ['send_emails', 'track_responses'],
-    nextStages: ['emails_sent', 'under_investigation']
+    adminActions: ['send_emails'],
+    nextStages: ['emails_sent']
   },
   EMAILS_SENT: {
     id: 'emails_sent',
@@ -38,40 +39,58 @@ const TIMELINE_STAGES = {
     description: 'Emails sent to telecom, banking, and nodal authorities',
     icon: '📧',
     userVisible: true,
-    adminActions: ['track_responses', 'follow_up'],
-    nextStages: ['under_investigation', 'authority_response']
+    adminActions: ['authorize_case'],
+    nextStages: ['authorized']
+  },
+  AUTHORIZED: {
+    id: 'authorized',
+    name: 'Case Authorized',
+    description: 'Case authorized by administration and ready for police investigation',
+    icon: '✅',
+    userVisible: true,
+    adminActions: ['assign_police'],
+    nextStages: ['assigned_to_police']
+  },
+  ASSIGNED_TO_POLICE: {
+    id: 'assigned_to_police',
+    name: 'Assigned to Police',
+    description: 'Case assigned to a police officer for field investigation',
+    icon: '👮',
+    userVisible: true,
+    adminActions: ['start_investigation'],
+    nextStages: ['under_investigation']
   },
   UNDER_INVESTIGATION: {
-    id: 'under_investigation',
+    id: 'under_review',
     name: 'Under Investigation',
-    description: 'Case is being investigated by authorities',
+    description: 'Case is actively being investigated by the assigned officer',
     icon: '🔍',
     userVisible: true,
-    adminActions: ['update_status', 'add_evidence'],
-    nextStages: ['evidence_collected', 'resolved', 'closed']
+    adminActions: ['collect_evidence', 'update_status'],
+    nextStages: ['evidence_collected']
   },
   EVIDENCE_COLLECTED: {
     id: 'evidence_collected',
     name: 'Evidence Collected',
-    description: 'Sufficient evidence collected for legal action',
+    description: 'Sufficient evidence collected and verified',
     icon: '📋',
     userVisible: true,
-    adminActions: ['prepare_charges', 'court_filing'],
-    nextStages: ['resolved', 'court_filed']
+    adminActions: ['mark_resolved'],
+    nextStages: ['resolved']
   },
   RESOLVED: {
     id: 'resolved',
     name: 'Case Resolved',
-    description: 'Fraud case has been successfully resolved',
+    description: 'Investigation successfully completed and case resolved',
     icon: '✅',
     userVisible: true,
-    adminActions: ['close_case', 'update_scammer_status'],
+    adminActions: ['close_case'],
     nextStages: ['closed']
   },
   CLOSED: {
     id: 'closed',
     name: 'Case Closed',
-    description: 'Case has been officially closed',
+    description: 'Case has been officially closed and archived',
     icon: '🔒',
     userVisible: true,
     adminActions: ['archive_case'],
@@ -84,7 +103,7 @@ const TIMELINE_STAGES = {
     icon: '❌',
     userVisible: true,
     adminActions: ['request_more_info'],
-    nextStages: ['report_submitted']
+    nextStages: ['submitted']
   }
 };
 
@@ -188,7 +207,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
       if (ObjectId.isValid(caseId)) {
         caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
       }
-      
+
       if (!caseDoc) {
         caseDoc = await db.collection('cases').findOne({ caseId: caseId });
       }
@@ -196,7 +215,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
       console.error("Error finding case:", error);
       caseDoc = null;
     }
-    
+
     if (!caseDoc) {
       return res.status(404).json({
         success: false,
@@ -263,8 +282,8 @@ async function updateCaseStatus(db, caseId, stage, userRole) {
   if (newStatus) {
     await db.collection('cases').updateOne(
       { _id: new ObjectId(caseId) },
-      { 
-        $set: { 
+      {
+        $set: {
           status: newStatus,
           updatedAt: new Date()
         }
@@ -294,16 +313,39 @@ async function triggerEmailAutomation(db, caseId) {
     if (!caseDoc) return;
 
     // Get scammer details
-    const scammer = await db.collection('scammers').findOne({ 
-      cases: { $in: [caseId] } 
+    const scammer = await db.collection('scammers').findOne({
+      cases: { $in: [caseDoc.caseId] }
     });
 
-    // Get user details
-    const user = await db.collection('users').findOne({ _id: caseDoc.userId });
-    const userProfile = await db.collection('userProfiles').findOne({ userId: caseDoc.userId });
+    // Send emails to authorities using the real service
+    const emailResults = await sendRealEmails(caseDoc, scammer, {
+      telecom: true,
+      banking: true,
+      nodal: true
+    });
 
-    // Send emails to authorities
-    await sendEmailsToAuthorities(db, caseDoc, scammer, user, userProfile);
+    // Log emails to sent_emails collection for the Communications tab
+    for (const [type, result] of Object.entries(emailResults)) {
+      try {
+        await db.collection('sent_emails').insertOne({
+          caseId: new ObjectId(caseDoc._id),
+          scammerId: scammer?._id ? new ObjectId(scammer._id) : null,
+          emailType: type,
+          subject: result.subject || 'No Subject',
+          content: result.content || 'No Content',
+          sentAt: new Date(),
+          sentBy: 'System (Automated)',
+          status: result.success ? 'sent' : 'failed',
+          recipient: {
+            email: result.email,
+            department: type
+          },
+          error: result.error
+        });
+      } catch (logError) {
+        console.error(`❌ Failed to log automated email:`, logError);
+      }
+    }
 
     // Update timeline with email status
     await db.collection('case_timeline').insertOne({
@@ -315,8 +357,9 @@ async function triggerEmailAutomation(db, caseId) {
       userVisible: true,
       createdAt: new Date(),
       metadata: {
-        emailsSent: ['telecom', 'banking', 'nodal'],
-        automated: true
+        emailsSentCount: Object.values(emailResults).filter(r => r.success).length,
+        automated: true,
+        emailResults: emailResults
       }
     });
 
@@ -325,19 +368,7 @@ async function triggerEmailAutomation(db, caseId) {
   }
 }
 
-// Send emails to authorities
-async function sendEmailsToAuthorities(db, caseDoc, scammer, user, userProfile) {
-  // This will be implemented in the email automation system
-  console.log('Sending emails to authorities for case:', caseDoc.caseId);
-  
-  // For now, just log the action
-  await db.collection('email_logs').insertOne({
-    caseId: caseDoc._id,
-    emailsSent: ['telecom@fraud.gov.in', 'banking@fraud.gov.in', 'nodal@fraud.gov.in'],
-    status: 'sent',
-    createdAt: new Date()
-  });
-}
+// Note: sendEmailsToAuthorities stub was replaced by triggerEmailAutomation using the real service directly.
 
 // Get next possible stages for current status
 function getNextPossibleStages(currentStatus) {

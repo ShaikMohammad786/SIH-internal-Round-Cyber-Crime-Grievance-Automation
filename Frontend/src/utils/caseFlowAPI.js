@@ -53,22 +53,22 @@ export const caseFlowAPI = {
   downloadCRPCDocument: async (documentId) => {
     try {
       console.log('📥 Frontend - Downloading document:', documentId);
-      
+
       // Get the token for authentication
       const token = localStorage.getItem('token');
       if (!token) {
         throw new Error('No authentication token found');
       }
-      
+
       // Create download URL
       const downloadUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/case-flow/crpc/download/${documentId}`;
       console.log('📥 Download URL:', downloadUrl);
-      
+
       // Create a temporary link and trigger download
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = `91CRPC_${documentId}.pdf`;
-      
+
       // Add authorization header by creating a fetch request
       const response = await fetch(downloadUrl, {
         method: 'GET',
@@ -77,25 +77,25 @@ export const caseFlowAPI = {
           'Content-Type': 'application/pdf'
         }
       });
-      
+
       if (!response.ok) {
         throw new Error(`Download failed: ${response.status} ${response.statusText}`);
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      
+
       // Create download link
       const downloadLink = document.createElement('a');
       downloadLink.href = url;
       downloadLink.download = `91CRPC_${documentId}.pdf`;
       document.body.appendChild(downloadLink);
       downloadLink.click();
-      
+
       // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(downloadLink);
-      
+
       console.log('✅ Document downloaded successfully');
       return { success: true };
     } catch (error) {
@@ -238,12 +238,12 @@ export const createCompleteCaseData = (formData) => {
 export const CASE_FLOW_STEPS = {
   1: { name: 'Report Submitted', description: 'Initial report received and logged', icon: '📄' },
   2: { name: 'Information Verified', description: 'Personal and contact details verified', icon: '🔍' },
-  3: { name: '91CRPC Generated', description: 'Legal document generated under Section 91 of CrPC', icon: '📋' },
-  4: { name: 'Email Sent', description: 'Emails sent to telecom, banking, and nodal authorities', icon: '📧' },
-  5: { name: 'Authorized', description: 'Case authorized by system and ready for police assignment', icon: '✅' },
+  3: { name: '91 CrPC Generated', description: 'Legal document generated under Section 91 of CrPC', icon: '📜' },
+  4: { name: 'Authorities Notified', description: 'Emails sent to telecom, banking, and nodal authorities', icon: '📧' },
+  5: { name: 'Case Authorized', description: 'Case authorized by system and ready for police assignment', icon: '✅' },
   6: { name: 'Assigned to Police', description: 'Case assigned to police for investigation', icon: '👮' },
   7: { name: 'Evidence Collected', description: 'Evidence collected and case ready for resolution', icon: '📋' },
-  8: { name: 'Resolved', description: 'Case resolved by police and ready for closure', icon: '✅' },
+  8: { name: 'Case Resolved', description: 'Case resolved by police and ready for closure', icon: '✅' },
   9: { name: 'Case Closed', description: 'Case successfully closed and archived', icon: '🔒' }
 };
 

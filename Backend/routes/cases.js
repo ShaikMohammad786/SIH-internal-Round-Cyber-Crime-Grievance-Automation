@@ -8,7 +8,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
   try {
     const { caseId } = req.params;
     const db = req.app.locals.db;
-    
+
     console.log("Getting case details for ID:", caseId);
 
     // Find the case
@@ -18,7 +18,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
       if (ObjectId.isValid(caseId)) {
         caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
       }
-      
+
       // If not found by ObjectId, try by caseId string
       if (!caseDoc) {
         caseDoc = await db.collection('cases').findOne({ caseId: caseId });
@@ -46,20 +46,20 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
     // Get user information from both users and userProfiles collections
     const user = await db.collection('users').findOne({ _id: caseDoc.userId });
     const userProfile = await db.collection('userProfiles').findOne({ userId: caseDoc.userId });
-    
+
     // Get case timeline/status history - remove duplicates
-    const timeline = await db.collection('case_timeline').find({ 
-      caseId: caseDoc._id 
+    const timeline = await db.collection('case_timeline').find({
+      caseId: caseDoc._id
     }).sort({ createdAt: 1 }).toArray();
 
     // Get evidence files
-    const evidence = await db.collection('case_evidence').find({ 
-      caseId: caseDoc._id 
+    const evidence = await db.collection('case_evidence').find({
+      caseId: caseDoc._id
     }).toArray();
 
     // Get admin comments
-    const adminComments = await db.collection('admin_comments').find({ 
-      caseId: caseDoc._id 
+    const adminComments = await db.collection('admin_comments').find({
+      caseId: caseDoc._id
     }).sort({ createdAt: -1 }).toArray();
 
     // Generate clean timeline without duplicates
@@ -124,7 +124,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
       // If we have database timeline entries, merge them intelligently
       if (timeline.length > 0) {
         const uniqueStages = new Map();
-        
+
         // Add database entries first (they have actual timestamps)
         timeline.forEach(entry => {
           if (entry.stage && !uniqueStages.has(entry.stage)) {
@@ -156,6 +156,31 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
       return baseTimeline;
     };
 
+    // Combine evidence from both sources and map to consistent format
+    const allEvidence = [
+      ...(caseDoc.evidence || []),
+      ...evidence
+    ];
+
+    const uniqueEvidence = [];
+    const seenFiles = new Set();
+
+    allEvidence.forEach(file => {
+      // Use name as identifier for uniqueness if _id is not stable
+      const fileId = file._id?.toString() || file.name || file.fileName;
+      if (!seenFiles.has(fileId)) {
+        seenFiles.add(fileId);
+        uniqueEvidence.push({
+          id: file._id,
+          name: file.name || file.fileName || 'unnamed_file',
+          type: file.type || file.fileType || 'unknown',
+          size: file.size || file.fileSize || 0,
+          url: file.url || file.data || file.fileUrl || null,
+          uploadedAt: file.uploadedAt || new Date()
+        });
+      }
+    });
+
     // Format the response
     const caseData = {
       id: caseDoc._id,
@@ -182,20 +207,13 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        address: userProfile?.addressInfo?.streetAddress ? 
+        address: userProfile?.addressInfo?.streetAddress ?
           `${userProfile.addressInfo.streetAddress}, ${userProfile.addressInfo.city}, ${userProfile.addressInfo.state} ${userProfile.addressInfo.postalCode}` :
           user.address || 'Address not provided',
-        dateOfBirth: userProfile?.personalInfo?.dateOfBirth || 
+        dateOfBirth: userProfile?.personalInfo?.dateOfBirth ||
           user.dateOfBirth || 'Date of birth not provided'
       } : null,
-      evidence: evidence.map(ev => ({
-        id: ev._id,
-        name: ev.fileName,
-        type: ev.fileType,
-        size: ev.fileSize,
-        url: ev.fileUrl,
-        uploadedAt: ev.uploadedAt
-      })),
+      evidence: uniqueEvidence,
       timeline: generateCleanTimeline(caseDoc),
       adminComments: adminComments.map(comment => ({
         id: comment._id,
@@ -212,7 +230,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Get case details error:', error);
-    
+
     // Handle database connection errors
     if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
       return res.status(503).json({
@@ -220,7 +238,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
         message: 'Database connection error. Please try again later.'
       });
     }
-    
+
     // Handle invalid ObjectId errors
     if (error.name === 'BSONTypeError' || error.message?.includes('ObjectId')) {
       return res.status(400).json({
@@ -228,7 +246,7 @@ router.get('/:caseId', authenticateToken, async (req, res) => {
         message: 'Invalid case ID format'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error while retrieving case details. Please try again later.'
@@ -253,14 +271,14 @@ router.put('/:caseId/status', authenticateToken, async (req, res) => {
 
     // Update case status
     const result = await db.collection('cases').updateOne(
-      { 
+      {
         $or: [
           { _id: new ObjectId(caseId) },
           { caseId: caseId }
         ]
       },
-      { 
-        $set: { 
+      {
+        $set: {
           status: status,
           updatedAt: new Date()
         }
@@ -307,7 +325,7 @@ router.put('/:caseId/status', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Update case status error:', error);
-    
+
     // Handle database connection errors
     if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
       return res.status(503).json({
@@ -315,7 +333,7 @@ router.put('/:caseId/status', authenticateToken, async (req, res) => {
         message: 'Database connection error. Please try again later.'
       });
     }
-    
+
     // Handle invalid ObjectId errors
     if (error.name === 'BSONTypeError' || error.message?.includes('ObjectId')) {
       return res.status(400).json({
@@ -323,7 +341,7 @@ router.put('/:caseId/status', authenticateToken, async (req, res) => {
         message: 'Invalid case ID format'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error while updating case status. Please try again later.'
@@ -360,7 +378,7 @@ router.post('/:caseId/comment', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Add comment error:', error);
-    
+
     // Handle database connection errors
     if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
       return res.status(503).json({
@@ -368,7 +386,7 @@ router.post('/:caseId/comment', authenticateToken, async (req, res) => {
         message: 'Database connection error. Please try again later.'
       });
     }
-    
+
     // Handle invalid ObjectId errors
     if (error.name === 'BSONTypeError' || error.message?.includes('ObjectId')) {
       return res.status(400).json({
@@ -376,7 +394,7 @@ router.post('/:caseId/comment', authenticateToken, async (req, res) => {
         message: 'Invalid case ID format'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error while adding comment. Please try again later.'
@@ -410,21 +428,23 @@ router.post('/:caseId/stage-action', authenticateToken, async (req, res) => {
       'start_investigation': 'under_review',
       'collect_evidence': 'evidence_collected',
       'mark_resolved': 'resolved',
-      'police_contact': 'resolved',
+      'police_contact': 'under_review', // Changed from resolved to prevent premature jumping
       'close_case': 'closed',
-      'request_more_info': 'submitted', // Keep as submitted for more info requests
-      'follow_up': 'closed', // Follow up actions
+      'request_more_info': 'submitted',
+      'follow_up': 'emails_sent', // Changed from closed to keep in current stage
       // Additional action mappings for any legacy actions
       'start_analysis': 'under_review',
       'escalate_verification': 'information_verified',
       'initiate_crpc': 'crpc_generated',
-      'request_additional_evidence': 'under_review',
+      'request_additional_evidence': 'evidence_collected',
       'mark_analysis_complete': 'evidence_collected',
       'send_legal_notice': 'evidence_collected',
-      'track_response': 'resolved',
+      'track_response': 'emails_sent',
+      'track_responses': 'emails_sent',
       'escalate_legal': 'resolved'
     };
 
+    // Verify transition logic
     const newStatus = actionStatusMap[action];
     if (!newStatus) {
       return res.status(400).json({
@@ -433,15 +453,41 @@ router.post('/:caseId/stage-action', authenticateToken, async (req, res) => {
       });
     }
 
-    // Update case status
+    // Determine Flow Updates for Synchronization
+    let flowUpdate = {};
+    const now = new Date();
+
+    if (['information_verified', 'verified'].includes(newStatus)) {
+      flowUpdate = { 'flow.currentStep': 2, 'flow.steps.1.status': 'completed', 'flow.steps.1.completedAt': now };
+    } else if (newStatus === 'crpc_generated') {
+      flowUpdate = { 'flow.currentStep': 3, 'flow.steps.2.status': 'completed', 'flow.steps.2.completedAt': now };
+    } else if (newStatus === 'emails_sent') {
+      flowUpdate = { 'flow.currentStep': 4, 'flow.steps.3.status': 'completed', 'flow.steps.3.completedAt': now };
+    } else if (newStatus === 'authorized') {
+      flowUpdate = { 'flow.currentStep': 5, 'flow.steps.4.status': 'completed', 'flow.steps.4.completedAt': now };
+    } else if (['under_review', 'assigned_to_police'].includes(newStatus)) {
+      flowUpdate = { 'flow.currentStep': 6, 'flow.steps.5.status': 'completed', 'flow.steps.5.completedAt': now };
+    } else if (newStatus === 'evidence_collected') {
+      flowUpdate = { 'flow.currentStep': 7, 'flow.steps.6.status': 'completed', 'flow.steps.6.completedAt': now };
+    } else if (newStatus === 'resolved') {
+      flowUpdate = { 'flow.currentStep': 8, 'flow.steps.7.status': 'completed', 'flow.steps.7.completedAt': now };
+    } else if (newStatus === 'closed') {
+      flowUpdate = {
+        'flow.currentStep': 9,
+        'flow.steps.8.status': 'completed', 'flow.steps.8.completedAt': now,
+        'flow.steps.9.status': 'completed', 'flow.steps.9.completedAt': now
+      };
+    }
+
+    // Update case status and flow
     await db.collection('cases').updateOne(
-      { 
+      {
         $or: [
           { _id: new ObjectId(caseId) },
           { caseId: caseId }
         ]
       },
-      { $set: { status: newStatus, updatedAt: new Date() } }
+      { $set: { status: newStatus, updatedAt: new Date(), ...flowUpdate } }
     );
 
     // Add timeline entry
@@ -480,7 +526,7 @@ router.post('/:caseId/stage-action', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Stage action error:', error);
-    
+
     // Handle database connection errors
     if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
       return res.status(503).json({
@@ -488,7 +534,7 @@ router.post('/:caseId/stage-action', authenticateToken, async (req, res) => {
         message: 'Database connection error. Please try again later.'
       });
     }
-    
+
     // Handle invalid ObjectId errors
     if (error.name === 'BSONTypeError' || error.message?.includes('ObjectId')) {
       return res.status(400).json({
@@ -496,7 +542,7 @@ router.post('/:caseId/stage-action', authenticateToken, async (req, res) => {
         message: 'Invalid case ID format'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error while performing stage action. Please try again later.'
@@ -507,7 +553,7 @@ router.post('/:caseId/stage-action', authenticateToken, async (req, res) => {
 // Helper function to update timeline stages based on status
 async function updateTimelineStages(db, caseId, newStatus) {
   const caseObjectId = new ObjectId(caseId);
-  
+
   // Define the 6-stage professional timeline system
   const timelineStages = [
     {
@@ -516,58 +562,82 @@ async function updateTimelineStages(db, caseId, newStatus) {
       description: 'Initial report received and logged.',
       icon: '📄',
       completedAt: new Date().toISOString(),
-      adminActions: ['verify_details', 'request_more_info']
+      adminActions: ['verify_details']
     },
     {
       stage: 'Information Verified',
-      status: ['verified', 'under_review', 'evidence_collected', 'crpc_generated', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
+      status: ['verified', 'crpc_generated', 'emails_sent', 'authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
       description: 'Personal and contact details verified.',
       icon: '🔍',
-      completedAt: ['verified', 'under_review', 'evidence_collected', 'crpc_generated', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
+      completedAt: ['verified', 'crpc_generated', 'emails_sent', 'authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
       adminActions: ['collect_scammer_details', 'verify_evidence']
     },
     {
-      stage: 'Under Review',
-      status: ['under_review', 'evidence_collected', 'crpc_generated', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
-      description: 'Case being reviewed by investigation team.',
-      icon: '🔍',
-      completedAt: ['under_review', 'evidence_collected', 'crpc_generated', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
-      adminActions: ['start_investigation', 'collect_evidence']
+      stage: '91 CrPC Generated',
+      status: ['crpc_generated', 'emails_sent', 'authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
+      description: 'Legal document generated under Section 91 of CrPC.',
+      icon: '📜',
+      completedAt: ['crpc_generated', 'emails_sent', 'authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
+      adminActions: ['send_emails', 'download_crpc']
+    },
+    {
+      stage: 'Authorities Notified',
+      status: ['emails_sent', 'authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
+      description: 'Emails sent to telecom, banking, and nodal authorities.',
+      icon: '📧',
+      completedAt: ['emails_sent', 'authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
+      adminActions: ['track_responses']
+    },
+    {
+      stage: 'Case Authorized',
+      status: ['authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
+      description: 'Case authorized by investigation team.',
+      icon: '✅',
+      completedAt: ['authorized', 'assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
+      adminActions: ['assign_police']
+    },
+    {
+      stage: 'Assigned to Police',
+      status: ['assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
+      description: 'Case assigned to a police officer for field investigation.',
+      icon: '👮',
+      completedAt: ['assigned_to_police', 'under_review', 'evidence_collected', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
+      adminActions: ['start_investigation']
     },
     {
       stage: 'Evidence Collected',
-      status: ['evidence_collected', 'crpc_generated', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
-      description: 'All relevant evidence gathered.',
+      status: ['evidence_collected', 'resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
+      description: 'All relevant evidence gathered and processed.',
       icon: '📋',
-      completedAt: ['evidence_collected', 'crpc_generated', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
-      adminActions: ['send_emails', 'generate_crpc']
+      completedAt: ['evidence_collected', 'resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
+      adminActions: ['mark_resolved']
     },
     {
       stage: 'Case Resolved',
       status: ['resolved', 'closed'].includes(newStatus) ? 'completed' : 'pending',
-      description: 'Technical analysis and review finished.',
-      icon: '📊',
+      description: 'Investigation successfully completed.',
+      icon: '✅',
       completedAt: ['resolved', 'closed'].includes(newStatus) ? new Date().toISOString() : null,
-      adminActions: ['mark_resolved', 'police_contact']
+      adminActions: ['close_case']
     },
     {
       stage: 'Case Closed',
       status: newStatus === 'closed' ? 'completed' : 'pending',
-      description: 'Case successfully closed.',
-      icon: '✅',
+      description: 'Case officially closed and archived.',
+      icon: '🔒',
       completedAt: newStatus === 'closed' ? new Date().toISOString() : null,
-      adminActions: ['close_case', 'follow_up']
+      adminActions: []
     }
   ];
 
   // Update or insert each timeline stage
   for (const stage of timelineStages) {
     await db.collection('case_timeline').updateOne(
-      { 
+      {
         caseId: caseObjectId,
         stage: stage.stage
       },
-      { 
+      {
         $set: {
           ...stage,
           updatedAt: new Date()

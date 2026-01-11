@@ -28,7 +28,7 @@ export const userProfilesAPI = {
       const params = new URLSearchParams();
       if (aadhaarNumber) params.append('aadhaarNumber', aadhaarNumber);
       if (panNumber) params.append('panNumber', panNumber);
-      
+
       const response = await api.get(`/user/previous-cases?${params.toString()}`);
       return response.data;
     } catch (error) {
@@ -114,11 +114,11 @@ export const userProfilesAPI = {
     try {
       console.log('📧 Sending emails for case:', caseId);
       console.log('📧 Email types:', emailTypes);
-      
+
       const response = await api.post(`/case-flow/progress/${caseId}`, {
         step: 4
       });
-      
+
       console.log('📧 Email sending response:', response.data);
       return response.data;
     } catch (error) {
@@ -178,18 +178,18 @@ export const userProfilesAPI = {
   downloadCRPCFromAdmin: async (caseId) => {
     try {
       console.log('📥 Downloading CRPC for case:', caseId);
-      
+
       // First get the CRPC document details
       const crpcResponse = await api.get(`/case-flow/crpc/${caseId}`);
       console.log('📥 CRPC document response:', crpcResponse.data);
-      
+
       if (!crpcResponse.data.success) {
         throw new Error(crpcResponse.data.message || 'CRPC document not found');
       }
-      
+
       const documentId = crpcResponse.data.data.documentId;
       console.log('📥 Document ID:', documentId);
-      
+
       // Now download the document
       const response = await api.get(`/case-flow/crpc/download/${documentId}`, {
         responseType: 'blob',
@@ -197,26 +197,26 @@ export const userProfilesAPI = {
           'Accept': 'application/pdf'
         }
       });
-      
+
       // Create download link
       console.log('📥 Response data type:', typeof response.data);
       console.log('📥 Response data length:', response.data?.length || 'unknown');
       console.log('📥 Response headers:', response.headers);
       console.log('📥 Content-Type:', response.headers['content-type']);
-      
+
       // Check if response is actually a PDF
       if (response.headers['content-type'] !== 'application/pdf') {
         throw new Error('Invalid response type - expected PDF');
       }
-      
+
       const blob = new Blob([response.data], { type: 'application/pdf' });
       console.log('📥 Blob created:', blob.size, 'bytes');
-      
+
       // Verify blob is not empty
       if (blob.size === 0) {
         throw new Error('Downloaded file is empty');
       }
-      
+
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -224,13 +224,13 @@ export const userProfilesAPI = {
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      
+
       // Clean up after a short delay
       setTimeout(() => {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       }, 1000);
-      
+
       return { success: true };
     } catch (error) {
       console.error('❌ Download CRPC error:', error);
@@ -312,7 +312,7 @@ export const userProfilesAPI = {
   // Get admin dashboard data
   getAdminDashboard: async () => {
     try {
-      const response = await api.get('/admin/dashboard');
+      const response = await api.get('/admin/dashboard-stats');
       return response.data;
     } catch (error) {
       throw new Error(error.response?.data?.message || 'Failed to fetch admin dashboard data');
@@ -363,10 +363,10 @@ export const userProfilesAPI = {
   performStageAction: async (caseId, action, stage, comment) => {
     try {
       console.log('API: performStageAction called with:', { caseId, action, stage, comment });
-      const response = await api.post(`/cases/${caseId}/stage-action`, { 
-        action, 
-        stage, 
-        comment 
+      const response = await api.post(`/cases/${caseId}/stage-action`, {
+        action,
+        stage,
+        comment
       });
       console.log('API: performStageAction response:', response.data);
       return response.data;
@@ -440,7 +440,7 @@ export const createFormDataStructure = (formData) => {
   console.log('streetAddress:', formData.streetAddress);
   console.log('dateOfBirth:', formData.dateOfBirth);
   console.log('=====================================');
-  
+
   return {
     caseType: formData.scamType || formData.caseType || 'Other',
     description: formData.incidentDescription || formData.description || '',
@@ -466,10 +466,10 @@ export const createFormDataStructure = (formData) => {
         gender: formData.gender || '',
         nationality: formData.nationality || ''
       },
-    contactInfo: {
-      email: formData.email || '',
-      phone: formData.primaryPhone || '',
-      alternatePhone: formData.alternatePhone || '',
+      contactInfo: {
+        email: formData.email || '',
+        phone: formData.primaryPhone || '',
+        alternatePhone: formData.alternatePhone || '',
         emergencyContact: {
           name: formData.emergencyContactName || '',
           phone: formData.emergencyContactPhone || '',
@@ -557,37 +557,37 @@ export const createFormDataStructure = (formData) => {
 // Helper function to validate form data
 export const validateFormData = (formData) => {
   const errors = [];
-  
+
   // Personal Information
   if (!formData.firstName?.trim()) errors.push('First name is required');
   if (!formData.lastName?.trim()) errors.push('Last name is required');
   if (!formData.dateOfBirth) errors.push('Date of birth is required');
   if (!formData.gender) errors.push('Gender is required');
   if (!formData.nationality?.trim()) errors.push('Nationality is required');
-  
+
   // Contact Information
   if (!formData.email?.trim()) errors.push('Email is required');
   if (!formData.primaryPhone?.trim()) errors.push('Phone number is required');
-  
+
   // Government IDs
   if (!formData.aadhaarNumber?.trim()) errors.push('Aadhaar number is required');
   if (!formData.panNumber?.trim()) errors.push('PAN number is required');
-  
+
   // Incident Information
   if (!formData.incidentDate) errors.push('Incident date is required');
   if (!formData.scamType) errors.push('Scam type is required');
   if (!formData.incidentDescription?.trim()) errors.push('Incident description is required');
   if (!formData.communicationMethod) errors.push('Communication method is required');
-  
+
   // Scammer Information
   if (!formData.scammerName?.trim()) errors.push('Scammer name is required');
   if (!formData.scammerPhone?.trim()) errors.push('Scammer phone is required');
   if (!formData.scammerEmail?.trim()) errors.push('Scammer email is required');
-  
+
   // Financial Information
   const amount = Number(String(formData.moneyLost || formData.financialLoss || '0').replace(/[₹,\s]/g, '')) || 0;
   if (amount <= 0) errors.push('Amount lost is required and must be greater than 0');
-  
+
   return {
     isValid: errors.length === 0,
     errors
@@ -597,7 +597,7 @@ export const validateFormData = (formData) => {
 // Helper function to check if profile is complete
 export const hasCompleteProfile = (profile) => {
   if (!profile) return false;
-  
+
   return !!(
     profile.personalInfo?.firstName &&
     profile.personalInfo?.lastName &&

@@ -3,9 +3,13 @@ import { userProfilesAPI } from '../utils/userProfilesAPI';
 import { validateToken, clearSessionAndRedirect } from '../utils/auth';
 import ScammerDetailsModal from './ScammerDetailsModal';
 import CRPCDocumentsModal from './CRPCDocumentsModal';
-import './CaseDetailsModal.css';
+import { 
+  X, Check, AlertTriangle, FileText, User, MapPin, 
+  Calendar, CreditCard, Globe, Phone, Mail, Clock, 
+  Download, Eye, Send, UserPlus
+} from 'lucide-react';
 
-const CaseDetailsModal = ({ caseId, isOpen, onClose, isAdmin = false, onAdminActionComplete }) => {
+const CaseDetailsModal = ({ caseId, isOpen, onClose, isAdmin = false, onAdminActionComplete, onAssignPolice }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [caseData, setCaseData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -27,34 +31,25 @@ const CaseDetailsModal = ({ caseId, isOpen, onClose, isAdmin = false, onAdminAct
       setLoading(true);
       setError('');
       
-      // Validate token before making API call
       if (!validateToken()) {
         setError('Session expired. Please login again.');
         return;
       }
       
-      // Use admin API if isAdmin is true, otherwise use user API
       const response = isAdmin 
         ? await userProfilesAPI.getAdminCaseDetails(caseId)
         : await userProfilesAPI.getCaseDetails(caseId);
         
       if (response.success) {
         setCaseData(response.case || response.data);
+        if (isAdmin) loadCaseEmails();
       } else {
         setError(response.message || 'Failed to load case details');
       }
     } catch (error) {
-      console.error('Error loading case details:', error);
-      
-      // Handle specific error cases
-      if (error.message.includes('Invalid or expired token')) {
+      if (error && error.message && error.message.includes('Invalid or expired token')) {
         setError('Session expired. Please login again.');
-        // Clear session and redirect to login
-        setTimeout(() => {
-          clearSessionAndRedirect();
-        }, 2000);
-      } else if (error.message.includes('Access denied')) {
-        setError('You do not have permission to view this case.');
+        setTimeout(clearSessionAndRedirect, 2000);
       } else {
         setError('Failed to load case details. Please try again.');
       }
@@ -63,1041 +58,488 @@ const CaseDetailsModal = ({ caseId, isOpen, onClose, isAdmin = false, onAdminAct
     }
   };
 
+  const loadCaseEmails = async () => {
+    try {
+      const response = await userProfilesAPI.getCaseEmails(caseId);
+      if (response.success) {
+        setSentEmails(response.emails || []);
+      }
+    } catch (error) {
+      console.error('Failed to load case emails:', error);
+    }
+  };
+
   const getStatusInfo = (status) => {
     const statusMap = {
-      completed: { label: 'Completed', color: '#10b981', bgColor: '#dcfce7' },
-      in_progress: { label: 'In Progress', color: '#3b82f6', bgColor: '#dbeafe' },
-      pending: { label: 'Pending', color: '#6b7280', bgColor: '#f1f5f9' }
+      submitted: { label: 'Submitted', color: 'text-slate-600 bg-slate-50 ring-slate-500/10' },
+      verified: { label: 'Verified', color: 'text-blue-700 bg-blue-50 ring-blue-600/20' },
+      crpc_generated: { label: '91 CRPC Ready', color: 'text-indigo-700 bg-indigo-50 ring-indigo-600/20' },
+      emails_sent: { label: 'Notified Authorities', color: 'text-purple-700 bg-purple-50 ring-purple-600/20' },
+      authorized: { label: 'Authorized', color: 'text-emerald-700 bg-emerald-50 ring-emerald-600/20' },
+      assigned_to_police: { label: 'Investigation In Progress', color: 'text-orange-700 bg-orange-50 ring-orange-600/20' },
+      evidence_collected: { label: 'Evidence Ready', color: 'text-cyan-700 bg-cyan-50 ring-cyan-600/20' },
+      resolved: { label: 'Solved', color: 'text-green-700 bg-green-50 ring-green-600/20' },
+      closed: { label: 'Closed', color: 'text-slate-600 bg-slate-50 ring-slate-500/10' },
+      pending: { label: 'Pending', color: 'text-slate-600 bg-slate-50 ring-slate-500/10' }
     };
-    return statusMap[status] || { label: status, color: '#6b7280', bgColor: '#f1f5f9' };
-  };
-
-  const getPriorityInfo = (priority) => {
-    const priorityMap = {
-      high: { label: 'High Priority', color: '#dc2626', bgColor: '#fef2f2' },
-      medium: { label: 'Medium', color: '#f59e0b', bgColor: '#fef3c7' },
-      low: { label: 'Low', color: '#10b981', bgColor: '#dcfce7' }
-    };
-    return priorityMap[priority] || { label: 'Medium', color: '#f59e0b', bgColor: '#fef3c7' };
-  };
-
-  const getScamTypeInfo = (scamType) => {
-    const typeMap = {
-      upi_fraud: 'UPI Fraud',
-      investment_scam: 'Investment Scam',
-      lottery_scam: 'Lottery Scam',
-      phishing: 'Phishing',
-      fake_calls: 'Fake Calls',
-      other: 'Other'
-    };
-    return typeMap[scamType] || scamType || 'Other';
-  };
-
-  const formatAmount = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount || 0);
+    return statusMap[status] || { label: status, color: 'text-slate-600 bg-slate-50 ring-slate-500/10' };
   };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
     });
   };
 
-  const handleAdminAction = async (action) => {
-    try {
-      let status;
-      let comment = '';
-      
-      switch (action) {
-        case 'mark_solved':
-          status = 'resolved';
-          comment = 'Case marked as solved by admin';
-          break;
-        case 'escalate':
-          status = 'investigating';
-          comment = 'Case escalated for further investigation';
-          break;
-        case 'generate_report':
-          // Generate PDF report
-          generateCaseReport();
-          return;
-        default:
-          return;
-      }
-
-      const response = await userProfilesAPI.updateCaseStatus(caseId, status, comment);
-      if (response.success) {
-        alert(`Action ${action} executed successfully`);
-        // Reload case details
-        loadCaseDetails();
-        // Notify parent component to refresh data
-        if (onAdminActionComplete) {
-          onAdminActionComplete();
-        }
-      } else {
-        alert('Failed to execute action');
-      }
-    } catch (error) {
-      console.error('Error executing admin action:', error);
-      alert('Failed to execute action');
-    }
-  };
-
-  const handleAddComment = async () => {
-    try {
-      if (!adminComment.trim()) {
-        alert('Please enter a comment');
-        return;
-      }
-
-      const response = await userProfilesAPI.addCaseComment(caseId, adminComment);
-      if (response.success) {
-        alert('Comment added successfully');
-        setAdminComment('');
-        // Reload case details to show new comment
-        loadCaseDetails();
-        // Notify parent component to refresh data
-        if (onAdminActionComplete) {
-          onAdminActionComplete();
-        }
-      } else {
-        alert('Failed to add comment');
-      }
-    } catch (error) {
-      console.error('Error adding comment:', error);
-      alert('Failed to add comment');
-    }
-  };
-
-  const generateCaseReport = () => {
-    // Generate PDF report functionality
-    alert('PDF report generation feature will be implemented');
-  };
+  const formatAmount = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
 
   const handleStageAction = async (action, stage) => {
     try {
-      console.log('Stage action triggered:', { action, stage, caseId });
-      
-      // Map frontend action names to backend action names
       const actionMap = {
-        'verify_details': 'verify_details',
-        'request_more_info': 'request_more_info',
-        'collect_scammer_details': 'collect_scammer_details',
-        'verify_evidence': 'verify_evidence',
-        'start_investigation': 'start_investigation',
-        'collect_evidence': 'collect_evidence',
-        'send_emails': 'send_emails',
-        'generate_crpc': 'generate_crpc',
-        'mark_resolved': 'mark_resolved',
-        'police_contact': 'police_contact',
-        'close_case': 'close_case',
-        'follow_up': 'follow_up',
-        // Additional mappings for any legacy actions
-        'start_analysis': 'start_analysis',
-        'escalate_verification': 'escalate_verification',
-        'initiate_crpc': 'initiate_crpc',
-        'request_additional_evidence': 'request_additional_evidence',
-        'mark_analysis_complete': 'mark_analysis_complete',
-        'send_legal_notice': 'send_legal_notice',
-        'track_response': 'track_response',
-        'escalate_legal': 'escalate_legal'
+        'verify_details': 'verify_details', 'request_more_info': 'request_more_info',
+        'collect_scammer_details': 'collect_scammer_details', 'verify_evidence': 'verify_evidence',
+        'start_investigation': 'start_investigation', 'collect_evidence': 'collect_evidence',
+        'send_emails': 'send_emails', 'generate_crpc': 'generate_crpc',
+        'mark_resolved': 'mark_resolved', 'police_contact': 'police_contact',
+        'close_case': 'close_case'
       };
       
       const backendAction = actionMap[action] || action;
-      console.log('Mapped action:', { frontend: action, backend: backendAction });
-      
       let comment = '';
       
-      // For certain actions, ask for specific comments
       if (['verify_details', 'verify_evidence', 'start_investigation', 'collect_evidence', 'mark_resolved', 'police_contact', 'close_case'].includes(backendAction)) {
         comment = prompt(`Add a comment for this action (optional):`);
-        if (comment === null) return; // User cancelled
+        if (comment === null) return;
       }
       
-      console.log('Calling performStageAction with:', { caseId, action: backendAction, stage, comment });
       const response = await userProfilesAPI.performStageAction(caseId, backendAction, stage, comment);
-      console.log('Stage action response:', response);
       
       if (response.success) {
         alert(`Action completed successfully`);
-        // Reload case details
         loadCaseDetails();
-        // Notify parent component to refresh data
-        if (onAdminActionComplete) {
-          onAdminActionComplete();
-        }
+        if (onAdminActionComplete) onAdminActionComplete();
       } else {
         alert('Failed to perform action: ' + (response.message || 'Unknown error'));
       }
     } catch (error) {
-      console.error('Error performing stage action:', error);
-      console.error('Error details:', error.response?.data);
       alert('Failed to perform action: ' + error.message);
     }
   };
 
   const getActionLabel = (action) => {
-    const actionLabels = {
-      'verify_details': 'Verify Details',
-      'request_more_info': 'Request More Info',
-      'collect_scammer_details': 'Collect Scammer Details',
-      'verify_evidence': 'Verify Evidence',
-      'start_investigation': 'Start Investigation',
-      'collect_evidence': 'Collect Evidence',
-      'send_emails': 'Send Emails',
-      'generate_crpc': 'Generate 91 CrPC',
-      'download_crpc': 'Download 91 CrPC',
-      'track_responses': 'Track Responses',
-      'mark_resolved': 'Mark Resolved',
-      'police_contact': 'Contact Police',
-      'close_case': 'Close Case',
-      'follow_up': 'Follow Up'
-    };
-    return actionLabels[action] || action;
+    return action.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
 
-  const handleScammerCreated = (newScammerId) => {
-    setScammerId(newScammerId);
-    loadCaseDetails(); // Reload to get updated scammer details
-  };
-
+  // Keep existing email/crpc handlers but stripped of excessive logging for brevity
   const handleSendEmails = async () => {
-    console.log('📧 Send Emails button clicked');
-    console.log('📧 Case ID:', caseId);
-    console.log('📧 Scammer ID:', scammerId);
-    console.log('📧 Case Data Scammer ID:', caseData?.scammerId);
-    console.log('📧 Case Data:', caseData);
-    console.log('📧 Case Data Scammer Details:', caseData?.scammerDetails);
-    
     try {
-      // Allow sending emails even without scammer details for testing
-      if (!scammerId && !caseData?.scammerId && !caseData?.scammerDetails) {
-        console.log('📧 No scammer details found, but proceeding with email sending...');
-      }
-      // Determine email types based on scammer details
       const emailTypes = [];
       const scammerDetails = caseData?.scammerDetails || {};
-      
       if (scammerDetails.phoneNumber) emailTypes.push('telecom');
       if (scammerDetails.bankAccount || scammerDetails.upiId) emailTypes.push('banking');
-      emailTypes.push('nodal'); // Always send to nodal officer
+      emailTypes.push('nodal');
+      if (emailTypes.length === 1) emailTypes.push('telecom', 'banking'); // Fallback
 
-      // If no scammer details, send to all authorities
-      if (emailTypes.length === 1) { // Only nodal
-        emailTypes.push('telecom', 'banking');
-      }
-
-      console.log('📧 Sending emails with types:', emailTypes);
-      console.log('📧 Using caseId:', caseId);
-      console.log('📧 Using scammerId:', scammerId || caseData.scammerId || 'no-scammer-id');
-
-      const response = await userProfilesAPI.sendEmails(caseId, scammerId || caseData.scammerId || 'no-scammer-id', emailTypes);
-      console.log('📧 Email response:', response);
-      console.log('📧 Response success:', response.success);
-      console.log('📧 Response data:', response.data);
-      console.log('📧 Email results:', response.data?.emailResults);
+      const response = await userProfilesAPI.sendEmails(caseId, scammerId || caseData?.scammerId || 'no-scammer-id', emailTypes);
       
       if (response.success) {
-        const emailResults = response.data?.emailResults || {};
-        console.log('📧 Parsed email results:', emailResults);
-        console.log('📧 Email results keys:', Object.keys(emailResults));
-        console.log('📧 Email results values:', Object.values(emailResults));
-        
-        // Debug each email result individually
-        Object.entries(emailResults).forEach(([key, result]) => {
-          console.log(`📧 ${key}:`, result);
-          console.log(`📧 ${key} success:`, result.success);
-          console.log(`📧 ${key} status:`, result.status);
-        });
-        
-        const successCount = Object.values(emailResults).filter(result => result.success).length;
-        const totalCount = Object.keys(emailResults).length;
-        
-        console.log(`📧 Success count: ${successCount}, Total count: ${totalCount}`);
-        alert(`Emails sent successfully: ${successCount}/${totalCount} authorities notified`);
-        
-        // Update local email status
-        setSentEmails(emailResults);
-        
-        // Reload case details to get updated email status
-        console.log('📧 Reloading case details after email send...');
-        await loadCaseDetails();
-        console.log('📧 Case details reloaded');
-        console.log('📧 Updated case data:', caseData);
-        console.log('📧 Case status:', caseData?.status);
-        console.log('📧 Email status:', caseData?.emailStatus);
-        if (onAdminActionComplete) {
-          console.log('📧 Calling onAdminActionComplete...');
-          onAdminActionComplete();
-        }
+        alert(`Emails sent successfully`);
+        setSentEmails(response.data?.emailResults || {});
+        loadCaseDetails();
+        if (onAdminActionComplete) onAdminActionComplete();
       } else {
-        console.log('📧 Email sending failed:', response.message);
-        alert('Failed to send emails: ' + (response.message || 'Unknown error'));
+        alert('Failed to send emails: ' + response.message);
       }
     } catch (error) {
-      console.error('📧 Email sending error:', error);
       alert('Error sending emails: ' + error.message);
     }
   };
 
   const handleGenerate91CrPC = async () => {
-    if (!scammerId && !caseData?.scammerId) {
-      alert('Please collect scammer details first');
-      return;
-    }
-
+    if (!scammerId && !caseData?.scammerId) return alert('Please collect scammer details first');
     try {
       const response = await userProfilesAPI.generate91CrPC(caseId, scammerId || caseData.scammerId);
       if (response.success) {
         alert('91 CrPC document generated successfully!');
         loadCaseDetails();
-        if (onAdminActionComplete) {
-          onAdminActionComplete();
-        }
+        if (onAdminActionComplete) onAdminActionComplete();
       } else {
-        alert('Failed to generate 91 CrPC: ' + (response.message || 'Unknown error'));
+        alert('Failed to generate 91 CrPC');
       }
-    } catch (error) {
-      console.error('Error generating 91 CrPC:', error);
-      alert('Failed to generate 91 CrPC document: ' + error.message);
-    }
+    } catch (error) { alert('Failed to generate 91 CrPC: ' + error.message); }
   };
 
   const handleDownloadCRPC = async () => {
-    try {
-      console.log('📥 Downloading CRPC for case:', caseId);
-      await userProfilesAPI.downloadCRPCFromAdmin(caseId);
-      console.log('✅ CRPC download completed');
-    } catch (error) {
-      console.error('Error downloading CRPC:', error);
-      alert('Failed to download CRPC document: ' + error.message);
-    }
+    try { await userProfilesAPI.downloadCRPCFromAdmin(caseId); } 
+    catch (error) { alert('Failed to download CRPC: ' + error.message); }
   };
 
   if (!isOpen) return null;
 
-  if (loading) {
-    return (
-      <div className="modal-overlay">
-        <div className="modal-content">
-          <div className="loading-container">
-            <div className="loading-spinner"></div>
-            <p>Loading case details...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="modal-overlay">
-        <div className="modal-content">
-          <div className="error-container">
-            <p>{error}</p>
-            <button onClick={onClose}>Close</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!caseData) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/50 backdrop-blur-sm transition-opacity">
+      <div className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-slate-200">
+        
         {/* Header */}
-        <div className="modal-header">
-          <div className="header-content">
-            <h1>Case Details: {caseData.caseId}</h1>
-            <p>Complete case information and management tools</p>
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Case Details: {caseData?.caseId || 'Loading...'}</h2>
+            <p className="text-sm text-slate-500">Complete case information and management</p>
           </div>
-          <div className="header-actions">
-            <button className="close-btn" onClick={onClose}>×</button>
-          </div>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+            <X className="h-6 w-6" />
+          </button>
         </div>
 
-        {/* Tabs */}
-        <div className="modal-tabs">
-          <button 
-            className={`tab-button ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}
-          >
-            Overview
-          </button>
-          <button 
-            className={`tab-button ${activeTab === 'victim' ? 'active' : ''}`}
-            onClick={() => setActiveTab('victim')}
-          >
-            Victim Details
-          </button>
-          <button 
-            className={`tab-button ${activeTab === 'evidence' ? 'active' : ''}`}
-            onClick={() => setActiveTab('evidence')}
-          >
-            Evidence
-          </button>
-          {isAdmin && (
-            <button 
-              className={`tab-button ${activeTab === 'admin' ? 'active' : ''}`}
-              onClick={() => setActiveTab('admin')}
-            >
-              Admin Actions
-            </button>
-          )}
-          {isAdmin && (
-            <button 
-              className={`tab-button ${activeTab === 'session' ? 'active' : ''}`}
-              onClick={() => setActiveTab('session')}
-            >
-              User Session History
-            </button>
-          )}
-        </div>
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center p-12">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+          </div>
+        ) : error ? (
+          <div className="flex flex-1 items-center justify-center p-12">
+            <div className="text-center">
+              <AlertTriangle className="mx-auto h-12 w-12 text-red-500 mb-4" />
+              <p className="text-red-500 font-medium">{error}</p>
+              <button onClick={onClose} className="mt-4 text-sm font-semibold text-slate-600 hover:underline">Close</button>
+            </div>
+          </div>
+        ) : caseData && (
+          <>
+            {/* Tabs */}
+            <div className="border-b border-slate-200 bg-white px-2">
+              <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+                {[
+                  { id: 'overview', label: 'Overview' },
+                  { id: 'victim', label: 'Victim Details' },
+                  { id: 'evidence', label: 'Evidence' },
+                  ...(isAdmin ? [
+                    { id: 'admin', label: 'Admin Actions' },
+                    { id: 'emails', label: 'Communications' }
+                  ] : [])
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`
+                      border-b-2 py-4 px-1 text-sm font-medium transition-colors
+                      ${activeTab === tab.id
+                        ? 'border-indigo-500 text-indigo-600'
+                        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}
+                    `}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
 
-        {/* Content */}
-        <div className="modal-body">
-          {activeTab === 'overview' && (
-            <div className="overview-content">
-              <h2>Case Progress Timeline</h2>
-              <div className="professional-timeline">
-                {caseData.timeline && caseData.timeline.length > 0 ? (
-                  caseData.timeline.map((item, index) => {
-                    const statusInfo = getStatusInfo(item.status || 'pending');
-                    const isLast = index === caseData.timeline.length - 1;
-                    
-                    return (
-                      <div key={item._id || item.id || index} className={`timeline-stage ${item.status || 'pending'}`}>
-                        <div className="stage-icon-container">
-                          <div className="stage-icon" style={{ backgroundColor: statusInfo.color }}>
-                            {item.icon || '📄'}
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto bg-slate-50 p-6">
+              
+              {activeTab === 'overview' && (
+                <div className="space-y-6">
+                  {/* Timeline */}
+                  <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                    <h3 className="mb-6 text-base font-semibold text-slate-900">Case Timeline</h3>
+                    <div className="relative border-l-2 border-slate-200 ml-4 space-y-8">
+                      {caseData.timeline?.map((item, index) => {
+                        const statusInfo = getStatusInfo(item.status);
+                        return (
+                          <div key={index} className="relative pl-8">
+                             <div className={`absolute -left-[11px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white ring-2 ${item.status === 'completed' ? 'ring-green-500' : 'ring-slate-300'}`}>
+                                <div className={`h-2.5 w-2.5 rounded-full ${item.status === 'completed' ? 'bg-green-500' : 'bg-slate-300'}`} />
+                             </div>
+                             <div className="flex flex-col gap-2 rounded-lg border border-slate-100 bg-white p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-900">
+                                      {item.stageName || item.stage?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                    </span>
+                                    <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${statusInfo.color}`}>
+                                      {statusInfo.label}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-slate-600">{item.description}</p>
+                                  {item.createdAt && (
+                                    <p className="text-xs text-slate-400">
+                                      {item.status === 'completed' ? 'Completed ' : 'Started '} {formatDate(item.createdAt)}
+                                    </p>
+                                  )}
+                                  
+                                  {/* Admin Actions in Timeline */}
+                                  {isAdmin && item.adminActions && (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {item.adminActions.map((action, idx) => (
+                                        <button
+                                          key={idx}
+                                          onClick={() => {
+                                            if (action === 'send_emails') handleSendEmails();
+                                            else if (action === 'generate_crpc') handleGenerate91CrPC();
+                                            else if (action === 'download_crpc') handleDownloadCRPC();
+                                            else if (action === 'collect_scammer_details') setShowScammerModal(true);
+                                            else if (action === 'assign_police') onAssignPolice && onAssignPolice(caseId);
+                                            else handleStageAction(action, item.stage);
+                                          }}
+                                          className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-100 transition-colors"
+                                        >
+                                          {getActionLabel(action)}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                             </div>
                           </div>
-                          {!isLast && <div className="timeline-connector"></div>}
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Police Assignment */}
+                  {isAdmin && caseData.assignedTo && (
+                    <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                      <h3 className="mb-4 text-base font-semibold text-slate-900">Police Assignment</h3>
+                      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <dt className="text-xs font-medium uppercase text-slate-500">Officer Name</dt>
+                          <dd className="mt-1 text-sm font-semibold text-slate-900">{caseData.assignedToName || 'Unknown'}</dd>
                         </div>
-                        <div className="stage-content">
-                          <div className="stage-header">
-                            <h3 className="stage-title">{item.stageName || item.stage || 'Unknown Stage'}</h3>
-                            <span className={`status-badge ${item.status || 'pending'}`}>
-                              {statusInfo.label}
-                            </span>
+                        <div>
+                          <dt className="text-xs font-medium uppercase text-slate-500">Assigned Date</dt>
+                          <dd className="mt-1 text-sm font-semibold text-slate-900">{formatDate(caseData.assignedAt)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'victim' && (
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                    <h3 className="mb-4 text-base font-semibold text-slate-900 flex items-center gap-2">
+                      <User className="h-4 w-4" /> Personal Details
+                    </h3>
+                    <dl className="space-y-4">
+                      {['name', 'phone', 'email', 'dateOfBirth'].map(field => (
+                        <div key={field}>
+                          <dt className="text-xs font-medium uppercase text-slate-500">{field.replace(/([A-Z])/g, ' $1').trim()}</dt>
+                          <dd className="mt-1 text-sm font-medium text-slate-900">
+                            {caseData.victimDetails?.[field] || caseData.user?.[field] || caseData.user?.[0]?.[field] || 'N/A'}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                  <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                      <h3 className="mb-4 text-base font-semibold text-slate-900 flex items-center gap-2">
+                        <MapPin className="h-4 w-4" /> Address & ID
+                      </h3>
+                      <dl className="space-y-4">
+                        {['address', 'city', 'aadhaarNumber', 'panNumber'].map(field => (
+                          <div key={field}>
+                            <dt className="text-xs font-medium uppercase text-slate-500">{field.replace(/([A-Z])/g, ' $1').trim()}</dt>
+                            <dd className="mt-1 text-sm font-medium text-slate-900">
+                              {caseData.victimDetails?.[field] || caseData.user?.[field] || caseData.user?.[0]?.[field] || 'N/A'}
+                            </dd>
                           </div>
-                          <p className="stage-description">{item.description || 'No description available'}</p>
-                          {item.createdAt && (
-                            <div className="stage-date">
-                              {item.status === 'completed' ? 'Completed on: ' : 'Started on: '}
-                              {formatDate(item.createdAt)}
+                        ))}
+                      </dl>
+                  </div>
+                  
+                  {/* Scammer info if available */}
+                  {(caseData.scammerDetails || caseData.scammerDetails?.[0]) && (
+                     <div className="col-span-1 md:col-span-2 rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200 border-l-4 border-red-500">
+                        <h3 className="mb-4 text-base font-semibold text-slate-900 flex items-center gap-2">
+                           <AlertTriangle className="h-4 w-4 text-red-500" /> Known Scammer Details
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <dt className="text-xs font-medium uppercase text-slate-500">Name</dt>
+                                <dd className="text-sm font-semibold">{caseData.scammerDetails?.name || caseData.scammerDetails?.[0]?.name}</dd>
                             </div>
-                          )}
-                          {/* Email Status Display - Only show for relevant stages */}
-                          {item.emailStatus && (item.stage === 'emails_sent' || item.stage === 'evidence_collected') && (
-                            <div className="email-status-section">
-                              <h4>Email Status:</h4>
-                              <div className="email-status-grid">
-                                <div className="email-status-item">
-                                  <span className="email-label">TELECOM</span>
-                                  <span className={`email-status ${item.emailStatus.telecom}`}>
-                                    {item.emailStatus.telecom === 'sent' ? '✅ Sent' : '⏳ Pending'}
-                                  </span>
+                            <div>
+                                <dt className="text-xs font-medium uppercase text-slate-500">Phone</dt>
+                                <dd className="text-sm font-semibold">{caseData.scammerDetails?.phoneNumber || caseData.scammerDetails?.[0]?.phoneNumber}</dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs font-medium uppercase text-slate-500">Bank Account</dt>
+                                <dd className="text-sm font-semibold">{caseData.scammerDetails?.bankAccount || caseData.scammerDetails?.[0]?.bankAccount || 'N/A'}</dd>
+                            </div>
+                        </div>
+                     </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'evidence' && (
+                <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                   <h3 className="mb-4 text-base font-semibold text-slate-900">Attached Files</h3>
+                   {caseData.evidence?.length > 0 ? (
+                     <div className="space-y-3">
+                       {caseData.evidence.map((file, idx) => (
+                         <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 p-3 hover:bg-slate-50">
+                            <div className="flex items-center gap-3">
+                               <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-100 text-slate-500">
+                                  <FileText className="h-5 w-5" />
+                               </div>
+                               <div>
+                                  <p className="text-sm font-medium text-slate-900">{file.name}</p>
+                                  <p className="text-xs text-slate-500">{file.size} • {formatDate(file.uploadedAt)}</p>
                                 </div>
-                                <div className="email-status-item">
-                                  <span className="email-label">BANKING</span>
-                                  <span className={`email-status ${item.emailStatus.banking}`}>
-                                    {item.emailStatus.banking === 'sent' ? '✅ Sent' : '⏳ Pending'}
-                                  </span>
+                             </div>
+                             <div className="flex gap-2">
+                                {(file.url || file.data) && (
+                                   <button 
+                                     onClick={() => {
+                                       const fileData = file.url || file.data;
+                                       if (!fileData) return;
+                                       
+                                       let downloadUrl = fileData;
+                                       if (fileData && !fileData.startsWith('http') && !fileData.startsWith('data:')) {
+                                         downloadUrl = `http://localhost:5000${fileData}`;
+                                       }
+                                       
+                                       const link = document.createElement('a');
+                                       link.href = downloadUrl;
+                                       link.download = file.name || 'document.png';
+                                       document.body.appendChild(link);
+                                       link.click();
+                                       document.body.removeChild(link);
+                                     }}
+                                      className="rounded p-2 text-emerald-600 hover:bg-emerald-50" 
+                                      title="Download Evidence"
+                                   >
+                                      <Download className="h-4 w-4" />
+                                   </button>
+                                )}
+                             </div>
+                          </div>
+                       ))}
+                     </div>
+                   ) : (
+                     <p className="text-sm text-slate-500 italic">No evidence files attached.</p>
+                   )}
+                </div>
+              )}
+
+              {activeTab === 'admin' && isAdmin && (
+                <div className="space-y-6">
+                   <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                      <h3 className="mb-4 text-base font-semibold text-slate-900">Admin Actions</h3>
+                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                         {/* General Admin Actions */}
+                         <button onClick={() => setShowScammerModal(true)} className="flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white p-4 text-sm font-medium text-slate-700 hover:border-indigo-500 hover:text-indigo-600 shadow-sm transition-all">
+                            <User className="h-6 w-6" />
+                            Add Scammer
+                         </button>
+                         <button onClick={handleGenerate91CrPC} className="flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white p-4 text-sm font-medium text-slate-700 hover:border-indigo-500 hover:text-indigo-600 shadow-sm transition-all">
+                            <FileText className="h-6 w-6" />
+                            Gen. 91 CrPC
+                         </button>
+                      </div>
+                   </div>
+
+                   <div className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+                      <h3 className="mb-4 text-base font-semibold text-slate-900">Admin Notes</h3>
+                      <textarea
+                        value={adminComment}
+                        onChange={(e) => setAdminComment(e.target.value)}
+                        placeholder="Add internal notes for this case..."
+                        className="w-full rounded-lg border-0 bg-slate-50 p-3 text-sm text-slate-900 ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600"
+                        rows={4}
+                      />
+                      <div className="mt-3 flex justify-end">
+                        <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                           <Send className="h-4 w-4" /> Save Note
+                        </button>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {activeTab === 'emails' && isAdmin && (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-white p-6 md:p-8 shadow-sm ring-1 ring-slate-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-bold text-slate-900">Communication History</h3>
+                      <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                        {sentEmails.length} Emails Sent
+                      </span>
+                    </div>
+
+                    {sentEmails.length > 0 ? (
+                      <div className="space-y-6">
+                        {sentEmails.map((email, idx) => (
+                          <div key={idx} className="group relative rounded-2xl border border-slate-200 bg-white p-5 transition-all hover:shadow-md hover:border-indigo-200">
+                            <div className="mb-4 flex items-start justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                                  <Mail className="h-5 w-5" />
                                 </div>
-                                <div className="email-status-item">
-                                  <span className="email-label">NODAL</span>
-                                  <span className={`email-status ${item.emailStatus.nodal}`}>
-                                    {item.emailStatus.nodal === 'sent' ? '✅ Sent' : '⏳ Pending'}
-                                  </span>
+                                <div>
+                                  <h4 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">{email.subject}</h4>
+                                  <p className="text-xs text-slate-500">
+                                    To: <span className="font-medium text-slate-700">{email.recipient?.email || email.recipient}</span> • {formatDate(email.sentAt)}
+                                  </p>
                                 </div>
                               </div>
+                              <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                                email.status === 'sent' 
+                                  ? 'bg-green-100 text-green-700' 
+                                  : 'bg-red-100 text-red-700'
+                              }`}>
+                                {email.status === 'sent' ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                                {email.status}
+                              </div>
                             </div>
-                          )}
-
-                          {isAdmin && item.adminActions && (
-                            <div className="stage-actions">
-                              {item.adminActions.map((action, actionIndex) => (
-                                <button
-                                  key={actionIndex}
-                                  className="stage-action-btn"
-                                  onClick={async () => {
-                                    if (action === 'collect_scammer_details') {
-                                      setShowScammerModal(true);
-                                    } else if (action === 'send_emails') {
-                                      await handleSendEmails();
-                                    } else if (action === 'generate_crpc') {
-                                      await handleGenerate91CrPC();
-                                    } else if (action === 'download_crpc') {
-                                      await handleDownloadCRPC();
-                                    } else if (action === 'verify_details') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'request_more_info') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'verify_evidence') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'start_investigation') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'collect_evidence') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'track_responses') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'follow_up') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'mark_resolved') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'police_contact') {
-                                      await handleStageAction(action, item.stage);
-                                    } else if (action === 'close_case') {
-                                      await handleStageAction(action, item.stage);
-                                    } else {
-                                      await handleStageAction(action, item.stage);
-                                    }
-                                  }}
-                                >
-                                  {getActionLabel(action)}
-                                </button>
-                              ))}
+                            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                              {email.content}
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="no-timeline">
-                    <div className="no-timeline-icon">📅</div>
-                    <h3>No Timeline Data</h3>
-                    <p>Timeline information is not available for this case.</p>
-                  </div>
-                )}
-              </div>
-              
-              {/* Police Assignment Information */}
-              {isAdmin && caseData.assignedTo && (
-                <div className="police-assignment-info">
-                  <h3>👮 Police Assignment</h3>
-                  <div className="assignment-details">
-                    <div className="assignment-item">
-                      <span className="assignment-label">Assigned Officer:</span>
-                      <span className="assignment-value">{caseData.assignedToName || 'Unknown Officer'}</span>
-                    </div>
-                    <div className="assignment-item">
-                      <span className="assignment-label">Officer ID:</span>
-                      <span className="assignment-value">{caseData.assignedTo}</span>
-                    </div>
-                    {caseData.assignedAt && (
-                      <div className="assignment-item">
-                        <span className="assignment-label">Assigned On:</span>
-                        <span className="assignment-value">{formatDate(caseData.assignedAt)}</span>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-slate-50 text-slate-300">
+                          <Mail className="h-10 w-10" />
+                        </div>
+                        <h4 className="text-lg font-semibold text-slate-900">No Communications Yet</h4>
+                        <p className="mt-2 text-sm text-slate-500 max-w-xs">
+                          Once you perform actions that involve notifying authorities, the email logs will appear here.
+                        </p>
                       </div>
                     )}
                   </div>
                 </div>
               )}
             </div>
-          )}
-
-          {activeTab === 'victim' && (
-            <div className="victim-content">
-              <h2>👤 Victim Information</h2>
-              <div className="victim-details-grid">
-                <div className="detail-group">
-                  <div className="detail-item">
-                    <span className="detail-icon">👤</span>
-                    <div className="detail-content">
-                      <label>Full Name:</label>
-                      <span>{caseData.victimDetails?.name || caseData.user?.[0]?.name || caseData.user?.name || 'Not provided'}</span>
-                    </div>
-                  </div>
-                  <div className="detail-item">
-                    <span className="detail-icon">📞</span>
-                    <div className="detail-content">
-                      <label>Phone:</label>
-                      <span>{caseData.victimDetails?.phone || caseData.user?.[0]?.phone || caseData.user?.phone || 'Not provided'}</span>
-                    </div>
-                  </div>
-                  <div className="detail-item">
-                    <span className="detail-icon">✉️</span>
-                    <div className="detail-content">
-                      <label>Email:</label>
-                      <span>{caseData.victimDetails?.email || caseData.user?.[0]?.email || caseData.user?.email || 'Not provided'}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="detail-group">
-                  <div className="detail-item">
-                    <span className="detail-icon">📍</span>
-                    <div className="detail-content">
-                      <label>Address:</label>
-                      <span>{caseData.victimDetails?.address || caseData.user?.[0]?.address || caseData.user?.address || 'Address not provided'}</span>
-                    </div>
-                  </div>
-                  <div className="detail-item">
-                    <span className="detail-icon">📅</span>
-                    <div className="detail-content">
-                      <label>Date of Birth:</label>
-                      <span>{caseData.victimDetails?.dateOfBirth || caseData.user?.[0]?.dateOfBirth || caseData.user?.dateOfBirth || 'Date of birth not provided'}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="detail-group">
-                  <div className="detail-item">
-                    <span className="detail-icon">🆔</span>
-                    <div className="detail-content">
-                      <label>Aadhaar Number:</label>
-                      <span>{caseData.victimDetails?.aadhaarNumber || caseData.user?.[0]?.aadhaarNumber || caseData.user?.aadhaarNumber || 'Not provided'}</span>
-                    </div>
-                  </div>
-                  <div className="detail-item">
-                    <span className="detail-icon">📋</span>
-                    <div className="detail-content">
-                      <label>PAN Number:</label>
-                      <span>{caseData.victimDetails?.panNumber || caseData.user?.[0]?.panNumber || caseData.user?.panNumber || 'Not provided'}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Scammer Details Section */}
-              {(caseData.scammerDetails && caseData.scammerDetails.length > 0) && (
-                <div className="scammer-section">
-                  <h3>🕵️ Scammer Information</h3>
-                  <div className="scammer-details-grid">
-                    <div className="detail-group">
-                      <div className="detail-item">
-                        <span className="detail-icon">👤</span>
-                        <div className="detail-content">
-                          <label>Name:</label>
-                          <span>{caseData.scammerDetails[0]?.name || caseData.scammerDetails?.name || 'Unknown'}</span>
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-icon">📞</span>
-                        <div className="detail-content">
-                          <label>Phone:</label>
-                          <span>{caseData.scammerDetails[0]?.phoneNumber || caseData.scammerDetails?.phoneNumber || 'Not provided'}</span>
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-icon">✉️</span>
-                        <div className="detail-content">
-                          <label>Email:</label>
-                          <span>{caseData.scammerDetails[0]?.email || caseData.scammerDetails?.email || 'Not provided'}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="detail-group">
-                      <div className="detail-item">
-                        <span className="detail-icon">💳</span>
-                        <div className="detail-content">
-                          <label>UPI ID:</label>
-                          <span>{caseData.scammerDetails.upiId || 'Not provided'}</span>
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-icon">🏦</span>
-                        <div className="detail-content">
-                          <label>Bank Account:</label>
-                          <span>{caseData.scammerDetails.bankAccount || 'Not provided'}</span>
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-icon">🏛️</span>
-                        <div className="detail-content">
-                          <label>IFSC Code:</label>
-                          <span>{caseData.scammerDetails.ifscCode || 'Not provided'}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="detail-group">
-                      <div className="detail-item">
-                        <span className="detail-icon">📍</span>
-                        <div className="detail-content">
-                          <label>Address:</label>
-                          <span>{caseData.scammerDetails.address || 'Not provided'}</span>
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-icon">📊</span>
-                        <div className="detail-content">
-                          <label>Total Cases:</label>
-                          <span>{caseData.scammerDetails.totalCases || 0}</span>
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <span className="detail-icon">⚠️</span>
-                        <div className="detail-content">
-                          <label>Status:</label>
-                          <span className={`status-badge ${caseData.scammerDetails.status}`}>
-                            {caseData.scammerDetails.status || 'Unknown'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'evidence' && (
-            <div className="evidence-content">
-              <h2>📄 Attached Evidence</h2>
-              {caseData.evidence && caseData.evidence.length > 0 ? (
-                <div className="evidence-list">
-                  {caseData.evidence.map((file) => {
-                    const isImage = file.type?.startsWith('image/') || 
-                                  file.name?.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
-                    const isVideo = file.type?.startsWith('video/') || 
-                                  file.name?.match(/\.(mp4|avi|mov|wmv|flv|webm)$/i);
-                    const isDocument = file.type?.includes('pdf') || 
-                                     file.name?.match(/\.(pdf|doc|docx|txt)$/i);
-                    
-                    return (
-                      <div key={file.id} className="evidence-item">
-                        <div className="file-icon">
-                          {isImage ? '🖼️' : isVideo ? '🎥' : isDocument ? '📄' : '📎'}
-                        </div>
-                        <div className="file-info">
-                          <div className="file-name">{file.name}</div>
-                          <div className="file-details">
-                            {file.type} • {file.size} • {formatDate(file.uploadedAt)}
-                          </div>
-                        </div>
-                        <div className="file-actions">
-                          <button 
-                            className="view-btn"
-                            onClick={() => {
-                              if (file.url) {
-                                window.open(file.url, '_blank');
-                              } else {
-                                alert('File URL not available');
-                              }
-                            }}
-                          >
-                            <span>👁️</span> View
-                          </button>
-                          <button 
-                            className="download-btn"
-                            onClick={() => {
-                              if (file.url) {
-                                const link = document.createElement('a');
-                                link.href = file.url;
-                                link.download = file.name;
-                                link.click();
-                              } else {
-                                alert('File URL not available');
-                              }
-                            }}
-                          >
-                            <span>⬇️</span> Download
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="no-evidence">
-                  <div className="no-evidence-icon">📁</div>
-                  <h3>No Evidence Files</h3>
-                  <p>No evidence files have been uploaded for this case yet.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'admin' && isAdmin && (
-            <div className="admin-content">
-              <h2>💬 Admin Actions & Comments</h2>
-              
-              {/* Quick Actions */}
-              <div className="admin-actions">
-                <h3>Quick Actions</h3>
-                <div className="action-buttons">
-                  <button 
-                    className="action-btn collect-scammer"
-                    onClick={() => setShowScammerModal(true)}
-                    disabled={caseData.scammerDetails}
-                  >
-                    <div className="action-icon">🕵️</div>
-                    <span>{caseData.scammerDetails ? 'Scammer Details Collected' : 'Collect Scammer Details'}</span>
-                  </button>
-                  
-                  <button 
-                    className="action-btn send-emails"
-                    onClick={handleSendEmails}
-                    title="Send emails to authorities"
-                  >
-                    <div className="action-icon">📧</div>
-                    <span>Send Emails to Authorities</span>
-                  </button>
-                  
-                  <button 
-                    className="action-btn generate-crpc"
-                    onClick={handleGenerate91CrPC}
-                    disabled={!caseData.scammerDetails || caseData.scammerDetails.length === 0}
-                  >
-                    <div className="action-icon">⚖️</div>
-                    <span>Generate 91 CrPC</span>
-                  </button>
-                  
-                  <button 
-                    className="action-btn view-documents"
-                    onClick={() => setShowCRPCDocumentsModal(true)}
-                  >
-                    <div className="action-icon">📋</div>
-                    <span>View CRPC Documents</span>
-                  </button>
-                  
-                  <button 
-                    className="action-btn solved"
-                    onClick={() => handleAdminAction('mark_solved')}
-                  >
-                    <div className="action-icon">✅</div>
-                    <span>Mark as Solved</span>
-                  </button>
-                  
-                  <button 
-                    className="action-btn escalate"
-                    onClick={() => handleAdminAction('escalate')}
-                  >
-                    <div className="action-icon">⚠️</div>
-                    <span>Escalate Case</span>
-                  </button>
-                  
-                  <button 
-                    className="action-btn report"
-                    onClick={() => handleAdminAction('generate_report')}
-                  >
-                    <div className="action-icon">📊</div>
-                    <span>Generate Report</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Case Status Summary */}
-              <div className="case-status-summary">
-                <h3>Case Status Summary</h3>
-                <div className="status-grid">
-                  <div className="status-item">
-                    <span className="status-label">Current Status:</span>
-                    <span className={`status-value ${caseData.status}`}>
-                      {caseData.status?.replace('_', ' ').toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="status-item">
-                    <span className="status-label">Priority:</span>
-                    <span className={`priority-value ${caseData.priority}`}>
-                      {caseData.priority?.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="status-item">
-                    <span className="status-label">Scammer Details:</span>
-                    <span className={`scammer-status ${caseData.scammerDetails ? 'collected' : 'pending'}`}>
-                      {caseData.scammerDetails ? 'COLLECTED' : 'PENDING'}
-                    </span>
-                  </div>
-                  <div className="status-item">
-                    <span className="status-label">Evidence Files:</span>
-                    <span className="evidence-count">
-                      {caseData.evidence?.length || 0} files
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Admin Comments */}
-              <div className="admin-comments">
-                <h3>Add Admin Comment</h3>
-                <textarea
-                  value={adminComment}
-                  onChange={(e) => setAdminComment(e.target.value)}
-                  placeholder="Add your comments, notes, or observations about this case..."
-                  rows={4}
-                />
-                <button 
-                  className="add-comment-btn"
-                  onClick={handleAddComment}
-                >
-                  <span>📤</span> Add Comment
-                </button>
-              </div>
-
-              {/* Existing Comments */}
-              {caseData.adminComments && caseData.adminComments.length > 0 && (
-                <div className="existing-comments">
-                  <h3>Previous Comments</h3>
-                  <div className="comments-list">
-                    {caseData.adminComments.map((comment) => (
-                      <div key={comment.id} className="comment-item">
-                        <div className="comment-header">
-                          <span className="comment-author">{comment.adminName}</span>
-                          <span className="comment-date">{formatDate(comment.createdAt)}</span>
-                        </div>
-                        <div className="comment-content">{comment.comment}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'session' && isAdmin && (
-            <div className="session-content">
-              <h2>🔐 User Session History</h2>
-              <div className="session-info-section">
-                <div className="user-session-header">
-                  <div className="user-info">
-                    <h3>👤 {caseData.user?.name || 'Unknown User'}</h3>
-                    <p>{caseData.user?.email || 'No email provided'}</p>
-                    <span className="role-badge">{caseData.user?.role || 'user'}</span>
-                  </div>
-                </div>
-
-                <div className="session-stats">
-                  <div className="stat-card">
-                    <div className="stat-icon">📊</div>
-                    <div className="stat-content">
-                      <div className="stat-number">12</div>
-                      <div className="stat-label">Total Sessions</div>
-                    </div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-icon">✅</div>
-                    <div className="stat-content">
-                      <div className="stat-number">10</div>
-                      <div className="stat-label">Successful Logins</div>
-                    </div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-icon">❌</div>
-                    <div className="stat-content">
-                      <div className="stat-number">2</div>
-                      <div className="stat-label">Failed Attempts</div>
-                    </div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="stat-icon">🕐</div>
-                    <div className="stat-content">
-                      <div className="stat-number">2h 30m</div>
-                      <div className="stat-label">Current Session</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="session-details">
-                  <h3>Recent Login History</h3>
-                  <div className="login-history">
-                    <div className="history-item success">
-                      <div className="history-time">2024-01-15 14:30:25</div>
-                      <div className="history-details">
-                        <span className="status-icon">✅</span>
-                        <span>Login Successful</span>
-                        <span className="ip-address">192.168.1.100</span>
-                      </div>
-                    </div>
-                    <div className="history-item success">
-                      <div className="history-time">2024-01-15 09:15:42</div>
-                      <div className="history-details">
-                        <span className="status-icon">✅</span>
-                        <span>Login Successful</span>
-                        <span className="ip-address">192.168.1.100</span>
-                      </div>
-                    </div>
-                    <div className="history-item failed">
-                      <div className="history-time">2024-01-14 16:45:18</div>
-                      <div className="history-details">
-                        <span className="status-icon">❌</span>
-                        <span>Login Failed - Wrong Password</span>
-                        <span className="ip-address">192.168.1.100</span>
-                      </div>
-                    </div>
-                    <div className="history-item success">
-                      <div className="history-time">2024-01-14 10:22:33</div>
-                      <div className="history-details">
-                        <span className="status-icon">✅</span>
-                        <span>Login Successful</span>
-                        <span className="ip-address">192.168.1.100</span>
-                      </div>
-                    </div>
-                    <div className="history-item failed">
-                      <div className="history-time">2024-01-13 20:15:07</div>
-                      <div className="history-details">
-                        <span className="status-icon">❌</span>
-                        <span>Login Failed - Invalid Credentials</span>
-                        <span className="ip-address">192.168.1.100</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="activity-log">
-                  <h3>Recent Activity</h3>
-                  <div className="activity-list">
-                    <div className="activity-item">
-                      <div className="activity-time">2024-01-15 14:35:12</div>
-                      <div className="activity-details">
-                        <span className="activity-action">Case Viewed</span>
-                        <span className="activity-desc">Viewed case details for {caseData.caseId}</span>
-                      </div>
-                    </div>
-                    <div className="activity-item">
-                      <div className="activity-time">2024-01-15 14:30:25</div>
-                      <div className="activity-details">
-                        <span className="activity-action">Login</span>
-                        <span className="activity-desc">Successfully logged into the system</span>
-                      </div>
-                    </div>
-                    <div className="activity-item">
-                      <div className="activity-time">2024-01-15 09:20:15</div>
-                      <div className="activity-details">
-                        <span className="activity-action">Case Created</span>
-                        <span className="activity-desc">Created new case report</span>
-                      </div>
-                    </div>
-                    <div className="activity-item">
-                      <div className="activity-time">2024-01-14 10:25:30</div>
-                      <div className="activity-details">
-                        <span className="activity-action">Profile Updated</span>
-                        <span className="activity-desc">Updated personal information</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
-      {/* Scammer Details Modal */}
-      <ScammerDetailsModal
-        caseId={caseId}
-        isOpen={showScammerModal}
-        onClose={() => setShowScammerModal(false)}
-        onScammerCreated={handleScammerCreated}
-      />
-
-      {/* CRPC Documents Modal */}
-      <CRPCDocumentsModal
-        isOpen={showCRPCDocumentsModal}
-        onClose={() => setShowCRPCDocumentsModal(false)}
-        caseId={caseId}
-      />
+      {/* Sub Modals */}
+      {showScammerModal && (
+        <ScammerDetailsModal
+          isOpen={showScammerModal}
+          onClose={() => setShowScammerModal(false)}
+          caseId={caseId}
+          onScammerCreated={(id) => {
+            setScammerId(id);
+            loadCaseDetails();
+            setShowScammerModal(false);
+          }}
+        />
+      )}
+      
+      {showCRPCDocumentsModal && (
+        <CRPCDocumentsModal
+          isOpen={showCRPCDocumentsModal}
+          onClose={() => setShowCRPCDocumentsModal(false)}
+          caseId={caseId}
+        />
+      )}
     </div>
   );
 };

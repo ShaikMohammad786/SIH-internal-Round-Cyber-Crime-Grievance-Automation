@@ -8,22 +8,33 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 // Environment variables loaded above
 
-// Email configuration - using environment variables
-const emailConfig = {
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER || 'skmohammad378@gmail.com',
-    pass: process.env.SMTP_PASS || 'ulnaqrmqcxoekstx'
-  },
-  tls: {
-    rejectUnauthorized: false
+// Email configuration function - ensures we get fresh env vars
+function getTransporter() {
+  const isGmail = (process.env.SMTP_HOST || '').includes('gmail');
+
+  const config = {
+    service: isGmail ? 'gmail' : undefined,
+    host: isGmail ? undefined : (process.env.SMTP_HOST || 'smtp.gmail.com'),
+    port: isGmail ? undefined : (parseInt(process.env.SMTP_PORT) || 587),
+    secure: isGmail ? undefined : (process.env.SMTP_PORT === '465'),
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  };
+
+  // Add TLS only if not Gmail (Gmail service handles it best)
+  if (!isGmail) {
+    config.tls = { rejectUnauthorized: false };
   }
-};
+
+  console.log(`📧 Creating transporter [Host: ${process.env.SMTP_HOST}] [User: ${process.env.SMTP_USER}] [Pass Len: ${process.env.SMTP_PASS ? process.env.SMTP_PASS.length : 0}]`);
+
+  return nodemailer.createTransport(config);
+}
 
 // Create transporter
-const transporter = nodemailer.createTransport(emailConfig);
+const transporter = getTransporter();
 
 // Email templates
 const emailTemplates = {
@@ -134,7 +145,7 @@ Cyber Crime Division
 async function sendEmail(to, subject, html, attachments = []) {
   try {
     const mailOptions = {
-      from: `"FraudLens System" <${emailConfig.auth.user}>`,
+      from: `"FraudLens System" <${process.env.SMTP_USER}>`,
       to: to,
       subject: subject,
       html: html,
@@ -161,108 +172,93 @@ async function sendEmail(to, subject, html, attachments = []) {
 // Send emails to authorities
 async function sendEmailsToAuthorities(caseData, scammerData, recipients) {
   const results = {};
-  
+
   try {
     // Get email addresses from environment variables with fallbacks
     const telecomEmail = process.env.TELECOM_EMAIL || 'telecom@fraud.gov.in';
     const bankingEmail = process.env.BANKING_EMAIL || 'banking@fraud.gov.in';
     const nodalEmail = process.env.NODAL_EMAIL || 'nodal@fraud.gov.in';
-    
-    console.log('📧 Email addresses (with fallbacks):');
+
+    console.log('📧 Email addresses:');
     console.log('  TELECOM_EMAIL:', telecomEmail);
     console.log('  BANKING_EMAIL:', bankingEmail);
     console.log('  NODAL_EMAIL:', nodalEmail);
 
     // Send to telecom authority
     if (recipients.telecom) {
-      const telecomTemplate = emailTemplates.telecom;
+      const template = emailTemplates.telecom;
+      const subject = template.subject;
+      const content = template.template(caseData, scammerData);
       console.log('📧 Sending email to telecom:', telecomEmail);
       try {
-        const telecomResult = await sendEmail(
-          telecomEmail,
-          telecomTemplate.subject,
-          telecomTemplate.template(caseData, scammerData)
-        );
-        console.log('📧 Telecom email result:', telecomResult);
+        const result = await sendEmail(telecomEmail, subject, content);
         results.telecom = {
-          success: telecomResult.success,
-          messageId: telecomResult.messageId,
-          to: telecomResult.to,
+          success: result.success,
+          messageId: result.messageId,
+          to: result.to,
           email: telecomEmail,
-          status: telecomResult.success ? 'sent' : 'failed'
+          subject,
+          content,
+          status: result.success ? 'sent' : 'failed',
+          error: result.error
         };
       } catch (error) {
         console.error('❌ Telecom email error:', error);
-        results.telecom = {
-          success: false,
-          error: error.message,
-          email: telecomEmail,
-          status: 'failed'
-        };
+        results.telecom = { success: false, error: error.message, status: 'failed', subject, content };
       }
     }
 
     // Send to banking authority
     if (recipients.banking) {
-      const bankingTemplate = emailTemplates.banking;
+      const template = emailTemplates.banking;
+      const subject = template.subject;
+      const content = template.template(caseData, scammerData);
       console.log('📧 Sending email to banking:', bankingEmail);
       try {
-        const bankingResult = await sendEmail(
-          bankingEmail,
-          bankingTemplate.subject,
-          bankingTemplate.template(caseData, scammerData)
-        );
-        console.log('📧 Banking email result:', bankingResult);
+        const result = await sendEmail(bankingEmail, subject, content);
         results.banking = {
-          success: bankingResult.success,
-          messageId: bankingResult.messageId,
-          to: bankingResult.to,
+          success: result.success,
+          messageId: result.messageId,
+          to: result.to,
           email: bankingEmail,
-          status: bankingResult.success ? 'sent' : 'failed'
+          subject,
+          content,
+          status: result.success ? 'sent' : 'failed',
+          error: result.error
         };
       } catch (error) {
         console.error('❌ Banking email error:', error);
-        results.banking = {
-          success: false,
-          error: error.message,
-          email: bankingEmail,
-          status: 'failed'
-        };
+        results.banking = { success: false, error: error.message, status: 'failed', subject, content };
       }
     }
 
     // Send to nodal officer
     if (recipients.nodal) {
-      const nodalTemplate = emailTemplates.nodal;
+      const template = emailTemplates.nodal;
+      const subject = template.subject;
+      const content = template.template(caseData, scammerData);
       console.log('📧 Sending email to nodal:', nodalEmail);
       try {
-        const nodalResult = await sendEmail(
-          nodalEmail,
-          nodalTemplate.subject,
-          nodalTemplate.template(caseData, scammerData)
-        );
-        console.log('📧 Nodal email result:', nodalResult);
+        const result = await sendEmail(nodalEmail, subject, content);
         results.nodal = {
-          success: nodalResult.success,
-          messageId: nodalResult.messageId,
-          to: nodalResult.to,
+          success: result.success,
+          messageId: result.messageId,
+          to: result.to,
           email: nodalEmail,
-          status: nodalResult.success ? 'sent' : 'failed'
+          subject,
+          content,
+          status: result.success ? 'sent' : 'failed',
+          error: result.error
         };
       } catch (error) {
         console.error('❌ Nodal email error:', error);
-        results.nodal = {
-          success: false,
-          error: error.message,
-          email: nodalEmail,
-          status: 'failed'
-        };
+        results.nodal = { success: false, error: error.message, status: 'failed', subject, content };
       }
     }
 
     return results;
   } catch (error) {
-    console.error('Error sending emails to authorities:', error);
+    console.error('Error in sendEmailsToAuthorities:', error);
     throw error;
   }
 }

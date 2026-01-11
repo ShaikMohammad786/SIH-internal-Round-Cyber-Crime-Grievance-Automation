@@ -10,7 +10,7 @@ router.post('/profile', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
     const userId = req.user.userId;
-    
+
     const {
       personalInfo,
       contactInfo,
@@ -184,8 +184,8 @@ router.get('/previous-cases', authenticateToken, async (req, res) => {
     const previousCases = await db.collection('cases').find({
       userId: { $in: matchingUserIds }
     })
-    .sort({ createdAt: -1 })
-    .toArray();
+      .sort({ createdAt: -1 })
+      .toArray();
 
     // Format response
     const formattedCases = previousCases.map(caseDoc => ({
@@ -237,8 +237,8 @@ router.get('/my-cases', authenticateToken, async (req, res) => {
     // Get timeline for each case
     const casesWithTimeline = await Promise.all(
       myCases.map(async (doc) => {
-        const timeline = await db.collection('case_timeline').find({ 
-          caseId: doc._id 
+        const timeline = await db.collection('case_timeline').find({
+          caseId: doc._id
         }).sort({ createdAt: 1 }).toArray();
 
         return {
@@ -333,7 +333,7 @@ router.post('/create-case', authenticateToken, async (req, res) => {
     const userId = req.user.userId;
     const timelineManager = new TimelineManager(db);
     const scammerManager = new ScammerManager(db);
-    
+
     const {
       caseType,
       description,
@@ -382,25 +382,25 @@ router.post('/create-case', authenticateToken, async (req, res) => {
     const generateCaseId = async () => {
       let caseId;
       let isUnique = false;
-      
+
       while (!isUnique) {
         const timestamp = Date.now().toString().slice(-6);
         const random = Math.random().toString(36).substr(2, 4).toUpperCase();
         caseId = `FRD-${timestamp}-${random}`;
-        
+
         // Check if case ID already exists
         const existingCase = await db.collection('cases').findOne({ caseId });
         if (!existingCase) {
           isUnique = true;
         }
       }
-      
+
       return caseId;
     };
 
     // Generate unique case ID
     const uniqueCaseId = await generateCaseId();
-    
+
     // Process scammer information
     let scammerInfo = null;
     if (formData?.incidentInfo?.suspectInfo) {
@@ -415,11 +415,11 @@ router.post('/create-case', authenticateToken, async (req, res) => {
         additionalInfo: suspectInfo.additionalInfo || '',
         amount: parseFloat(amount)
       };
-      
+
       scammerInfo = await scammerManager.processScammerInfo(scammerData, uniqueCaseId);
       console.log('Scammer processed:', scammerInfo);
     }
-    
+
     // DEBUG: Log the form data being received
     console.log('=== CASE CREATION DEBUG ===');
     console.log('Case ID:', uniqueCaseId);
@@ -512,7 +512,7 @@ router.post('/create-case', authenticateToken, async (req, res) => {
 
     // Insert case into database
     const result = await db.collection('cases').insertOne(newCase);
-    
+
     // Add initial timeline entry
     await timelineManager.addTimelineEntry(
       result.insertedId,
@@ -696,9 +696,9 @@ router.get('/dashboard-fresh', authenticateToken, async (req, res) => {
     const recentCases = await db.collection('cases').find({
       userId: new ObjectId(userId)
     })
-    .sort({ createdAt: -1 })
-    .limit(5)
-    .toArray();
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .toArray();
 
     // Get case statistics
     const stats = await db.collection('cases').aggregate([
@@ -933,7 +933,14 @@ router.get('/case/:caseId', authenticateToken, async (req, res) => {
         incidentDate: caseDoc.incidentDate,
         location: caseDoc.location,
         contactInfo: caseDoc.contactInfo,
-        evidence: caseDoc.evidence,
+        evidence: (caseDoc.evidence || []).map(ev => ({
+          id: ev._id,
+          name: ev.name || ev.fileName || 'unnamed_file',
+          size: ev.size || ev.fileSize || 0,
+          type: ev.type || ev.fileType || 'unknown',
+          url: ev.url || ev.data || ev.fileUrl || null,
+          uploadedAt: ev.uploadedAt || new Date()
+        })),
         formData: caseDoc.formData,
         timeline: caseDoc.timeline || [],
         assignedTo: assignedUser,
@@ -955,7 +962,7 @@ router.get('/case/:caseId', authenticateToken, async (req, res) => {
 async function processScammerData(db, scammerInfo, caseId, caseIdString) {
   try {
     const { phoneNumber, email, upiId, bankAccount, ifscCode, name, address } = scammerInfo;
-    
+
     if (!phoneNumber && !email && !upiId && !bankAccount) {
       return; // No scammer data to process
     }
@@ -975,12 +982,12 @@ async function processScammerData(db, scammerInfo, caseId, caseIdString) {
       // Update existing scammer
       await db.collection('scammers').updateOne(
         { _id: existingScammer._id },
-        { 
-          $addToSet: { 
+        {
+          $addToSet: {
             cases: caseIdString,
             evidenceTypes: 'user_report'
           },
-          $set: { 
+          $set: {
             lastSeen: new Date(),
             updatedAt: new Date()
           }
@@ -990,8 +997,8 @@ async function processScammerData(db, scammerInfo, caseId, caseIdString) {
       // Link case to scammer
       await db.collection('cases').updateOne(
         { _id: caseId },
-        { 
-          $set: { 
+        {
+          $set: {
             scammerId: existingScammer._id,
             updatedAt: new Date()
           }
@@ -1016,14 +1023,14 @@ async function processScammerData(db, scammerInfo, caseId, caseIdString) {
         updatedAt: new Date(),
         status: 'active'
       };
-      
+
       const scammerResult = await db.collection('scammers').insertOne(newScammer);
-      
+
       // Link case to scammer
       await db.collection('cases').updateOne(
         { _id: caseId },
-        { 
-          $set: { 
+        {
+          $set: {
             scammerId: scammerResult.insertedId,
             updatedAt: new Date()
           }

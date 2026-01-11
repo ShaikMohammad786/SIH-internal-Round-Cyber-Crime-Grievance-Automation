@@ -15,7 +15,7 @@ import {
   validateDate,
   INPUT_CONFIGS
 } from '../utils/formUtils';
-import './FormInput.css';
+import { AlertCircle } from 'lucide-react';
 
 const FormInput = ({ 
   name, 
@@ -35,7 +35,6 @@ const FormInput = ({
   const [isFocused, setIsFocused] = useState(false);
   const [hasError, setHasError] = useState(!!error);
 
-  // Update hasError when error prop changes
   useEffect(() => {
     setHasError(!!error);
   }, [error]);
@@ -44,7 +43,6 @@ const FormInput = ({
     const inputValue = e.target.value;
     let formattedValue = inputValue;
 
-    // Apply formatting based on field type
     switch (name) {
       case 'aadhaarNumber':
         formattedValue = formatAadhaarNumber(inputValue);
@@ -71,23 +69,18 @@ const FormInput = ({
         formattedValue = inputValue;
     }
 
-    // Call parent onChange
     onChange(e.target.name, formattedValue);
-
-    // Validate field
     validateField(name, formattedValue);
   };
 
   const validateField = (fieldName, fieldValue) => {
     let validation = { isValid: true, message: '' };
 
-    // Skip validation if field is empty and not required
     if (!fieldValue && !required) {
       setHasError(false);
       return;
     }
 
-    // Apply specific validation based on field type
     switch (fieldName) {
       case 'aadhaarNumber':
         validation = validateAadhaar(fieldValue);
@@ -100,7 +93,6 @@ const FormInput = ({
         validation = validatePhone(fieldValue);
         break;
       case 'alternatePhone':
-        // Alternate phone is optional, only validate if provided
         if (fieldValue && fieldValue.trim()) {
           validation = validatePhone(fieldValue);
         } else {
@@ -130,15 +122,6 @@ const FormInput = ({
     setHasError(!validation.isValid);
   };
 
-  const handleFocus = () => {
-    setIsFocused(true);
-  };
-
-  const handleBlur = () => {
-    setIsFocused(false);
-    validateField(name, value);
-  };
-
   const getInputConfig = () => {
     return INPUT_CONFIGS[name] || {
       type: type,
@@ -150,18 +133,34 @@ const FormInput = ({
 
   const inputConfig = getInputConfig();
 
+  // Tailwind classes based on state
+  const baseInputClasses = "block w-full rounded-md border-0 py-2.5 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 transition-all duration-200";
+  const errorInputClasses = "text-red-900 ring-red-300 placeholder:text-red-300 focus:ring-red-500";
+  const iconPaddingClass = icon ? "pl-10" : "pl-3";
+  
+  // Special font classes for specific inputs
+  const isMonospace = ['aadhaarNumber', 'panNumber', 'pincode', 'currentPincode', 'permanentPincode'].includes(name);
+  const fontClass = isMonospace ? "font-mono tracking-wider" : "";
+  const isCurrency = ['financialLoss', 'amount'].includes(name);
+  const currencyClass = isCurrency ? "font-semibold text-emerald-700" : "";
+
   const renderInput = () => {
+    const commonProps = {
+      name,
+      value: value || '',
+      onChange: handleInputChange,
+      onFocus: () => setIsFocused(true),
+      onBlur: () => {
+        setIsFocused(false);
+        validateField(name, value);
+      },
+      required,
+      className: `${baseInputClasses} ${hasError ? errorInputClasses : ''} ${iconPaddingClass} ${fontClass} ${currencyClass}`
+    };
+
     if (type === 'select') {
       return (
-        <select
-          name={name}
-          value={value || ''}
-          onChange={handleInputChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          className={`form-input ${hasError ? 'error' : ''} ${isFocused ? 'focused' : ''}`}
-          required={required}
-        >
+        <select {...commonProps}>
           <option value="">Select {label}</option>
           {options.map((option) => (
             <option key={option.value} value={option.value}>
@@ -175,16 +174,11 @@ const FormInput = ({
     if (type === 'textarea') {
       return (
         <textarea
-          name={name}
-          value={value || ''}
-          onChange={handleInputChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
+          {...commonProps}
           placeholder={inputConfig.placeholder}
           maxLength={inputConfig.maxLength}
-          className={`form-input form-textarea ${hasError ? 'error' : ''} ${isFocused ? 'focused' : ''}`}
-          required={required}
           rows={4}
+          className={`${commonProps.className} resize-y min-h-[100px]`}
         />
       );
     }
@@ -192,51 +186,57 @@ const FormInput = ({
     return (
       <input
         type={inputConfig.type}
-        name={name}
-        value={value || ''}
-        onChange={handleInputChange}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
+        {...commonProps}
         placeholder={inputConfig.placeholder}
         maxLength={inputConfig.maxLength}
-        className={`form-input ${hasError ? 'error' : ''} ${isFocused ? 'focused' : ''}`}
-        required={required}
       />
     );
   };
 
   return (
-    <div className={`form-group ${className} ${hasError ? 'has-error' : ''}`}>
-      <label className="form-label">
+    <div className={`mb-5 ${className}`}>
+      <label className={`block text-sm font-medium leading-6 mb-1.5 ${hasError ? 'text-red-600' : 'text-slate-900'}`}>
         {label}
-        {required && <span className="required-asterisk">*</span>}
+        {required && <span className="ml-1 text-red-500">*</span>}
       </label>
       
-      <div className="input-container">
-        {icon && <div className="input-icon">{icon}</div>}
+      <div className="relative rounded-md shadow-sm">
+        {icon && (
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+            <span className="text-slate-500 sm:text-sm">{icon}</span>
+          </div>
+        )}
+        
         {renderInput()}
-        {maxLength && (
-          <div className="char-count">
-            {(value || '').length}/{maxLength}
+        
+        {maxLength && !hasError && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+            <span className="text-xs text-slate-400">
+              {(value || '').length}/{maxLength}
+            </span>
+          </div>
+        )}
+
+        {hasError && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+            <AlertCircle className="h-5 w-5 text-red-500" aria-hidden="true" />
           </div>
         )}
       </div>
       
       {error && (
-        <div className="error-message">
-          <span className="error-icon">⚠️</span>
+        <p className="mt-2 text-sm text-red-600 flex items-center gap-1 animate-in slide-in-from-top-1">
           {error}
-        </div>
+        </p>
       )}
       
       {helpText && !error && (
-        <div className="help-text">
+        <p className="mt-2 text-xs text-slate-500">
           {helpText}
-        </div>
+        </p>
       )}
     </div>
   );
 };
 
 export default FormInput;
-

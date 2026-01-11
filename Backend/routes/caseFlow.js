@@ -12,7 +12,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
     const userId = req.user.userId;
-    
+
     const {
       caseType,
       description,
@@ -29,7 +29,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
 
     // Generate unique case ID
     const caseId = await generateUniqueCaseId(db);
-    
+
     // Create case document
     const caseDoc = {
       caseId,
@@ -51,13 +51,13 @@ router.post('/submit', authenticateToken, async (req, res) => {
         steps: [
           { step: 1, name: 'Report Submitted', status: 'completed', completedAt: new Date() },
           { step: 2, name: 'Information Verified', status: 'pending' },
-          { step: 3, name: '91CRPC Generated', status: 'pending' },
-          { step: 4, name: 'Email Sent', status: 'pending' },
-          { step: 5, name: 'Authorized', status: 'pending' },
+          { step: 3, name: '91 CrPC Generated', status: 'pending' },
+          { step: 4, name: 'Authorities Notified', status: 'pending' },
+          { step: 5, name: 'Case Authorized', status: 'pending' },
           { step: 6, name: 'Assigned to Police', status: 'pending' },
           { step: 7, name: 'Evidence Collected', status: 'pending' },
-          { step: 8, name: 'Resolved', status: 'pending' },
-          { step: 9, name: 'Closed', status: 'pending' }
+          { step: 8, name: 'Case Resolved', status: 'pending' },
+          { step: 9, name: 'Case Closed', status: 'pending' }
         ]
       }
     };
@@ -65,6 +65,25 @@ router.post('/submit', authenticateToken, async (req, res) => {
     // Insert case
     const caseResult = await db.collection('cases').insertOne(caseDoc);
     console.log('✅ Case created with ID:', caseResult.insertedId);
+
+    // Process and save evidence to case_evidence collection
+    if (evidence && Array.isArray(evidence)) {
+      for (const file of evidence) {
+        try {
+          await db.collection('case_evidence').insertOne({
+            caseId: caseResult.insertedId,
+            fileName: file.name || 'unnamed_file',
+            fileType: file.type || 'application/octet-stream',
+            fileSize: file.size || 0,
+            fileUrl: file.data || null, // Store base64 data
+            uploadedAt: new Date(file.uploadedAt) || new Date()
+          });
+        } catch (evError) {
+          console.error('❌ Failed to save evidence file:', evError);
+        }
+      }
+      console.log(`✅ ${evidence.length} evidence files processed`);
+    }
 
     // Process scammer information
     let scammerId = null;
@@ -82,7 +101,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
     }
 
     // Add timeline entry
-    await addTimelineEntry(db, caseResult.insertedId, 'Report Submitted', 'completed', 
+    await addTimelineEntry(db, caseResult.insertedId, 'Report Submitted', 'completed',
       'Initial report received and logged.', req.user);
 
     // Step 1 completed - now automatically process verification and 91CRPC generation
@@ -120,12 +139,12 @@ router.post('/submit', authenticateToken, async (req, res) => {
 async function processInformationVerification(db, caseId, caseIdString) {
   try {
     console.log('🔍 Processing information verification for case:', caseIdString);
-    
+
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'verified',
           'flow.currentStep': 2,
           'flow.steps.1.status': 'completed',
@@ -152,7 +171,7 @@ async function process91CRPCGeneration(db, caseId, caseIdString) {
   try {
     console.log('📋 Processing 91CRPC generation for case:', caseIdString);
     console.log('📋 Case ID type:', typeof caseId, caseId);
-    
+
     // Get case details
     const caseDoc = await db.collection('cases').findOne({ _id: caseId });
     if (!caseDoc) {
@@ -165,11 +184,11 @@ async function process91CRPCGeneration(db, caseId, caseIdString) {
     console.log('📋 Generating 91CRPC document content...');
     const crpcDocument = await generate91CrPCDocument(caseDoc);
     console.log('📋 91CRPC document content generated:', !!crpcDocument);
-    
+
     // Save CRPC document
     const documentNumber = generateDocumentNumber();
     console.log('📋 Generated document number:', documentNumber);
-    
+
     const crpcRecord = {
       caseId: caseId,
       caseIdString: caseIdString,
@@ -196,8 +215,8 @@ async function process91CRPCGeneration(db, caseId, caseIdString) {
     console.log('📋 Updating case status...');
     const caseUpdateResult = await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'crpc_generated',
           'flow.currentStep': 3,
           'flow.steps.2.status': 'completed',
@@ -211,7 +230,7 @@ async function process91CRPCGeneration(db, caseId, caseIdString) {
 
     // Add timeline entry
     console.log('📋 Adding timeline entry...');
-    const timelineResult = await addTimelineEntry(db, caseId, '91CRPC Generated', 'completed',
+    const timelineResult = await addTimelineEntry(db, caseId, '91 CrPC Generated', 'completed',
       'Legal document generated under Section 91 of CrPC', { name: 'System' });
     console.log('📋 Timeline entry result:', timelineResult);
 
@@ -240,10 +259,10 @@ async function process91CRPCGeneration(db, caseId, caseIdString) {
 async function processEmailSending(db, caseId, caseIdString, crpcRecord) {
   try {
     console.log('📧 Processing email sending for case:', caseIdString);
-    
+
     // Get case and scammer details
     const caseDoc = await db.collection('cases').findOne({ _id: caseId });
-    const scammerDoc = caseDoc.scammerId ? 
+    const scammerDoc = caseDoc.scammerId ?
       await db.collection('scammers').findOne({ _id: caseDoc.scammerId }) : null;
 
     // Send emails to authorities
@@ -254,7 +273,31 @@ async function processEmailSending(db, caseId, caseIdString, crpcRecord) {
     });
 
     console.log('✅ Emails sent with results:', emailResults);
-    
+
+    // Log emails to sent_emails collection for the Communications tab
+    for (const [type, result] of Object.entries(emailResults)) {
+      try {
+        await db.collection('sent_emails').insertOne({
+          caseId: new ObjectId(caseId),
+          scammerId: caseDoc.scammerId ? new ObjectId(caseDoc.scammerId) : null,
+          emailType: type,
+          subject: result.subject || 'No Subject',
+          content: result.content || 'No Content',
+          sentAt: new Date(),
+          sentBy: 'System',
+          status: result.success ? 'sent' : 'failed',
+          recipient: {
+            email: result.email,
+            department: type
+          },
+          error: result.error
+        });
+        console.log(`📝 Logged ${type} email to sent_emails`);
+      } catch (logError) {
+        console.error(`❌ Failed to log ${type} email:`, logError);
+      }
+    }
+
     // Count successful emails
     const successfulEmails = Object.values(emailResults).filter(result => result.success).length;
     const totalEmails = Object.keys(emailResults).length;
@@ -263,8 +306,8 @@ async function processEmailSending(db, caseId, caseIdString, crpcRecord) {
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'emails_sent',
           'flow.currentStep': 4,
           'flow.steps.3.status': 'completed',
@@ -279,7 +322,7 @@ async function processEmailSending(db, caseId, caseIdString, crpcRecord) {
     );
 
     // Add timeline entry
-    await addTimelineEntry(db, caseId, 'Email Sent', 'completed',
+    await addTimelineEntry(db, caseId, 'Authorities Notified', 'completed',
       `Emails sent to authorities: ${successfulEmails}/${totalEmails} successful`, { name: 'System' });
 
     // Step 4 completed - now wait for admin to authorize
@@ -302,12 +345,12 @@ async function processEmailSending(db, caseId, caseIdString, crpcRecord) {
 async function processAuthorization(db, caseId, caseIdString) {
   try {
     console.log('✅ Processing authorization for case:', caseIdString);
-    
+
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'authorized',
           'flow.currentStep': 5,
           'flow.steps.4.status': 'completed',
@@ -318,7 +361,7 @@ async function processAuthorization(db, caseId, caseIdString) {
     );
 
     // Add timeline entry
-    await addTimelineEntry(db, caseId, 'Authorized', 'completed',
+    await addTimelineEntry(db, caseId, 'Case Authorized', 'completed',
       'Case authorized by system and ready for police assignment', { name: 'System' });
 
     // Automatically proceed to Step 6: Police Assignment
@@ -333,12 +376,12 @@ async function processAuthorization(db, caseId, caseIdString) {
 async function processPoliceAssignment(db, caseId, caseIdString) {
   try {
     console.log('👮 Processing police assignment for case:', caseIdString);
-    
+
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'assigned_to_police',
           'flow.currentStep': 6,
           'flow.steps.5.status': 'completed',
@@ -366,12 +409,12 @@ async function processPoliceAssignment(db, caseId, caseIdString) {
 async function processEvidenceCollection(db, caseId, caseIdString) {
   try {
     console.log('📋 Processing evidence collection for case:', caseIdString);
-    
+
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'evidence_collected',
           'flow.currentStep': 7,
           'flow.steps.6.status': 'completed',
@@ -398,12 +441,12 @@ async function processEvidenceCollection(db, caseId, caseIdString) {
 async function processResolution(db, caseId, caseIdString) {
   try {
     console.log('✅ Processing resolution for case:', caseIdString);
-    
+
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'resolved',
           'flow.currentStep': 8,
           'flow.steps.7.status': 'completed',
@@ -430,12 +473,12 @@ async function processResolution(db, caseId, caseIdString) {
 async function processClosure(db, caseId, caseIdString) {
   try {
     console.log('🔒 Processing closure for case:', caseIdString);
-    
+
     // Update case status
     await db.collection('cases').updateOne(
       { _id: caseId },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'closed',
           'flow.currentStep': 9,
           'flow.steps.8.status': 'completed',
@@ -466,12 +509,12 @@ router.get('/status/:caseId', authenticateToken, async (req, res) => {
     const db = req.app.locals.db;
 
     let caseDoc;
-    
+
     // Try to find by ObjectId first if it's a valid ObjectId
     if (ObjectId.isValid(caseId) && caseId.length === 24) {
       caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
     }
-    
+
     // If not found by ObjectId, try by caseId string
     if (!caseDoc) {
       caseDoc = await db.collection('cases').findOne({ caseId: caseId });
@@ -538,12 +581,12 @@ router.post('/progress/:caseId', authenticateToken, async (req, res) => {
     }
 
     let caseDoc;
-    
+
     // Try to find by ObjectId first if it's a valid ObjectId
     if (ObjectId.isValid(caseId) && caseId.length === 24) {
       caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
     }
-    
+
     // If not found by ObjectId, try by caseId string
     if (!caseDoc) {
       caseDoc = await db.collection('cases').findOne({ caseId: caseId });
@@ -609,18 +652,18 @@ router.post('/progress/:caseId', authenticateToken, async (req, res) => {
 async function generateUniqueCaseId(db) {
   let caseId;
   let isUnique = false;
-  
+
   while (!isUnique) {
     const timestamp = Date.now().toString().slice(-6);
     const random = Math.random().toString(36).substr(2, 4).toUpperCase();
     caseId = `FRD-${timestamp}-${random}`;
-    
+
     const existingCase = await db.collection('cases').findOne({ caseId });
     if (!existingCase) {
       isUnique = true;
     }
   }
-  
+
   return caseId;
 }
 
@@ -640,9 +683,9 @@ async function processScammerInfo(db, scammerInfo, caseId) {
       // Update existing scammer
       await db.collection('scammers').updateOne(
         { _id: existingScammer._id },
-        { 
+        {
           $addToSet: { cases: caseId },
-          $set: { 
+          $set: {
             lastSeen: new Date(),
             updatedAt: new Date()
           }
@@ -667,7 +710,7 @@ async function processScammerInfo(db, scammerInfo, caseId) {
         updatedAt: new Date(),
         status: 'active'
       };
-      
+
       const result = await db.collection('scammers').insertOne(newScammer);
       return result.insertedId;
     }
@@ -699,12 +742,12 @@ function getIconForStage(stage) {
   const icons = {
     'Report Submitted': '📄',
     'Information Verified': '🔍',
-    '91CRPC Generated': '📋',
-    'Email Sent': '📧',
-    'Authorized': '✅',
+    '91 CrPC Generated': '📜',
+    'Authorities Notified': '📧',
+    'Case Authorized': '✅',
     'Assigned to Police': '👮',
     'Evidence Collected': '📋',
-    'Resolved': '✅',
+    'Case Resolved': '✅',
     'Case Closed': '🔒'
   };
   return icons[stage] || '📄';
@@ -713,7 +756,7 @@ function getIconForStage(stage) {
 async function generate91CrPCDocument(caseDoc) {
   const currentDate = new Date();
   const documentNumber = generateDocumentNumber();
-  
+
   return {
     documentType: '91 CrPC Notice',
     documentNumber: documentNumber,
@@ -747,7 +790,7 @@ function generateDocumentNumber() {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   const timestamp = now.getTime().toString().slice(-6);
-  
+
   return `91CRPC/${year}${month}${day}/${timestamp}`;
 }
 
@@ -758,12 +801,12 @@ router.get('/crpc/:caseId', authenticateToken, async (req, res) => {
     const db = req.app.locals.db;
 
     let caseDoc;
-    
+
     // Try to find by ObjectId first if it's a valid ObjectId
     if (ObjectId.isValid(caseId) && caseId.length === 24) {
       caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
     }
-    
+
     // If not found by ObjectId, try by caseId string
     if (!caseDoc) {
       caseDoc = await db.collection('cases').findOne({ caseId: caseId });
@@ -854,32 +897,32 @@ router.get('/crpc/download/:documentId', authenticateToken, async (req, res) => 
       margin: 50,
       autoFirstPage: true
     });
-    
+
     // Set response headers BEFORE piping
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="91CRPC_${document.documentNumber}.pdf"`);
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Transfer-Encoding', 'chunked');
-    
+
     // Pipe PDF to response
     doc.pipe(res, { end: false });
-    
+
     // Add header
     doc.fontSize(24).text('91 CrPC Document', 50, 50, { align: 'center' });
     doc.fontSize(16).text(`Document Number: ${document.documentNumber}`, 50, 90);
     doc.fontSize(14).text(`Case ID: ${document.caseIdString}`, 50, 120);
     doc.fontSize(12).text(`Generated: ${new Date(document.generatedAt).toLocaleString()}`, 50, 150);
-    
+
     // Add line separator
     doc.moveTo(50, 180).lineTo(550, 180).stroke();
-    
+
     // Case Details Section
     doc.fontSize(18).text('Case Details', 50, 200);
     doc.fontSize(12).text(`Case Type: ${caseDoc.caseType || 'Not specified'}`, 50, 230);
     doc.text(`Amount Lost: ₹${caseDoc.amount?.toLocaleString() || '0'}`, 50, 250);
     doc.text(`Status: ${caseDoc.status || 'Unknown'}`, 50, 270);
     doc.text(`Incident Date: ${caseDoc.incidentDate || 'Not specified'}`, 50, 290);
-    
+
     // Victim Details Section
     doc.fontSize(18).text('Victim Details', 50, 330);
     if (caseDoc.formData?.personalInfo) {
@@ -888,7 +931,7 @@ router.get('/crpc/download/:documentId', authenticateToken, async (req, res) => 
       doc.text(`Date of Birth: ${personalInfo.dateOfBirth || 'Not provided'}`, 50, 380);
       doc.text(`Gender: ${personalInfo.gender || 'Not provided'}`, 50, 400);
     }
-    
+
     // Scammer Details Section
     doc.fontSize(18).text('Suspect Details', 50, 440);
     if (caseDoc.scammerInfo) {
@@ -899,31 +942,31 @@ router.get('/crpc/download/:documentId', authenticateToken, async (req, res) => 
       doc.text(`UPI ID: ${scammer.upiId || 'Not provided'}`, 50, 530);
       doc.text(`Bank Account: ${scammer.bankAccount || 'Not provided'}`, 50, 550);
     }
-    
+
     // Legal Notice Section
     doc.addPage();
     doc.fontSize(20).text('Legal Notice', 50, 50, { align: 'center' });
     doc.fontSize(14).text('Section 91 of the Code of Criminal Procedure, 1973', 50, 90, { align: 'center' });
-    
+
     doc.fontSize(12).text('This document is issued under Section 91 of the Code of Criminal Procedure, 1973, requiring immediate investigation and action by the relevant authorities.', 50, 130);
-    
+
     doc.text('The following authorities are hereby notified:', 50, 170);
     doc.text('• Telecom Regulatory Authority of India', 70, 190);
     doc.text('• Reserve Bank of India', 70, 210);
     doc.text('• Cyber Crime Division', 70, 230);
-    
+
     doc.text('This notice requires immediate compliance within 48 hours of receipt.', 50, 270);
-    
+
     // Footer
     doc.fontSize(10).text('Generated by FraudLens System', 50, 750, { align: 'center' });
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 50, 770, { align: 'center' });
-    
+
     // Handle PDF completion
     doc.on('end', () => {
       console.log('✅ PDF generation completed successfully');
       res.end();
     });
-    
+
     doc.on('error', (error) => {
       console.error('❌ PDF generation error:', error);
       if (!res.headersSent) {
@@ -935,10 +978,10 @@ router.get('/crpc/download/:documentId', authenticateToken, async (req, res) => 
         res.end();
       }
     });
-    
+
     // Finalize PDF
     doc.end();
-    
+
     console.log('✅ PDF generation started');
 
   } catch (error) {

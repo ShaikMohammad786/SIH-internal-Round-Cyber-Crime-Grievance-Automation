@@ -38,25 +38,25 @@ router.get('/dashboard-stats', async (req, res) => {
     ] = await Promise.all([
       // Total users
       db.collection('users').countDocuments(),
-      
+
       // Total cases
       db.collection('cases').countDocuments(),
-      
+
       // Active cases (not closed/resolved)
       db.collection('cases').countDocuments({
         status: { $nin: ['closed', 'resolved'] }
       }),
-      
+
       // Resolved cases
       db.collection('cases').countDocuments({
         status: { $in: ['resolved', 'closed'] }
       }),
-      
+
       // Total amount
       db.collection('cases').aggregate([
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ]).toArray(),
-      
+
       // Recent cases (last 10)
       db.collection('cases').aggregate([
         {
@@ -76,6 +76,7 @@ router.get('/dashboard-stats', async (req, res) => {
             status: 1,
             priority: 1,
             createdAt: 1,
+            assignedTo: 1,
             'user.name': 1,
             'user.email': 1
           }
@@ -83,7 +84,7 @@ router.get('/dashboard-stats', async (req, res) => {
         { $sort: { createdAt: -1 } },
         { $limit: 10 }
       ]).toArray(),
-      
+
       // Case status breakdown
       db.collection('cases').aggregate([
         {
@@ -93,7 +94,7 @@ router.get('/dashboard-stats', async (req, res) => {
           }
         }
       ]).toArray(),
-      
+
       // Monthly statistics (last 6 months)
       db.collection('cases').aggregate([
         {
@@ -135,7 +136,7 @@ router.get('/dashboard-stats', async (req, res) => {
           // Determine the correct status based on case data
           let displayStatus = caseDoc.status;
           let statusLabel = caseDoc.status;
-          
+
           // Map database status to user-friendly labels
           const statusMap = {
             'submitted': 'Report Submitted',
@@ -147,9 +148,9 @@ router.get('/dashboard-stats', async (req, res) => {
             'resolved': 'Case Resolved',
             'closed': 'Case Closed'
           };
-          
+
           statusLabel = statusMap[caseDoc.status] || caseDoc.status;
-          
+
           return {
             id: caseDoc._id,
             caseId: caseDoc.caseId,
@@ -160,6 +161,7 @@ router.get('/dashboard-stats', async (req, res) => {
             statusLabel: statusLabel,
             priority: caseDoc.priority,
             createdAt: caseDoc.createdAt,
+            assignedTo: caseDoc.assignedTo,
             user: caseDoc.user[0]
           };
         }),
@@ -173,7 +175,7 @@ router.get('/dashboard-stats', async (req, res) => {
 
   } catch (error) {
     console.error('Get admin dashboard stats error:', error);
-    
+
     // Handle database connection errors
     if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
       return res.status(503).json({
@@ -181,7 +183,7 @@ router.get('/dashboard-stats', async (req, res) => {
         message: 'Database connection error. Please try again later.'
       });
     }
-    
+
     // Handle aggregation errors
     if (error.name === 'MongoServerError' && error.code === 2) {
       return res.status(400).json({
@@ -189,7 +191,7 @@ router.get('/dashboard-stats', async (req, res) => {
         message: 'Invalid query parameters'
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Server error while retrieving dashboard statistics. Please try again later.'
@@ -217,10 +219,10 @@ router.get('/users', async (req, res) => {
     const users = await db.collection('users').find(query, {
       projection: { password: 0 }
     })
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(parseInt(limit))
-    .toArray();
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
 
     // Get total count
     const totalUsers = await db.collection('users').countDocuments(query);
@@ -281,8 +283,8 @@ router.patch('/users/:userId/role', async (req, res) => {
 
     const result = await db.collection('users').updateOne(
       { _id: new ObjectId(userId) },
-      { 
-        $set: { 
+      {
+        $set: {
           role,
           updatedAt: new Date()
         }
@@ -310,7 +312,7 @@ router.patch('/users/:userId/role', async (req, res) => {
   }
 });
 
-    // Get case details for admin
+// Get case details for admin
 router.get('/cases/:caseId', async (req, res) => {
   try {
     const db = req.app.locals.db;
@@ -368,33 +370,32 @@ router.get('/cases/:caseId', async (req, res) => {
 
     const caseData = caseDoc[0];
     const userProfile = caseData.userProfile?.[0];
-    
+
     // Extract form data structure first
     const formData = caseData.formData || {};
     const actualFormData = formData.formData || formData; // Handle nested structure
-    
+
     // Get timeline for this case
-    const timeline = await db.collection('case_timeline').find({ 
-      caseId: caseData._id 
+    const timeline = await db.collection('case_timeline').find({
+      caseId: caseData._id
     }).sort({ createdAt: 1 }).toArray();
 
-    // Get evidence files from form data
-    const evidenceInfo = actualFormData.evidenceInfo || {};
-    const evidenceFiles = evidenceInfo.evidenceFiles || [];
-    
-    // Convert form evidence files to the expected format
-    const evidence = evidenceFiles.map((file, index) => ({
-      _id: `evidence_${index}`,
-      fileName: file.name || `evidence_${index}`,
-      fileType: file.type || 'unknown',
-      fileSize: file.size || 0,
-      uploadedAt: new Date(),
-      url: file.url || null
+    // Get evidence files from either the main evidence array or form data fallback
+    const rawEvidence = caseData.evidence || actualFormData.evidenceInfo?.evidenceFiles || [];
+
+    // Convert evidence files to the expected format
+    const evidence = rawEvidence.map((file, index) => ({
+      _id: file._id || `evidence_${index}`,
+      name: file.name || file.fileName || `evidence_${index}`,
+      type: file.type || file.fileType || 'unknown',
+      size: file.size || file.fileSize || 0,
+      uploadedAt: file.uploadedAt || new Date(),
+      url: file.url || file.data || file.fileUrl || null
     }));
 
     // Get admin comments
-    const adminComments = await db.collection('admin_comments').find({ 
-      caseId: caseData._id 
+    const adminComments = await db.collection('admin_comments').find({
+      caseId: caseData._id
     }).sort({ createdAt: -1 }).toArray();
 
     // Extract victim details from form data first, then fallback to user data
@@ -402,7 +403,7 @@ router.get('/cases/:caseId', async (req, res) => {
     const contactInfo = actualFormData.contactInfo || {};
     const addressInfo = actualFormData.addressInfo || {};
     const governmentIds = actualFormData.governmentIds || {};
-    
+
     // DEBUG: Log the form data structure
     console.log('=== VICTIM DETAILS DEBUG ===');
     console.log('Case ID:', caseData.caseId);
@@ -414,21 +415,21 @@ router.get('/cases/:caseId', async (req, res) => {
     console.log('Government IDs:', JSON.stringify(governmentIds, null, 2));
     console.log('User Data:', JSON.stringify(caseData.user[0], null, 2));
     console.log('===========================');
-    
+
     // Get address details from the correct structure
     const currentAddress = addressInfo.currentAddress || {};
-    
+
     const victimDetails = {
-      name: (personalInfo.firstName && personalInfo.lastName) ? 
+      name: (personalInfo.firstName && personalInfo.lastName) ?
         `${personalInfo.firstName} ${personalInfo.middleName || ''} ${personalInfo.lastName}`.trim() :
         caseData.user[0]?.name || 'Unknown',
       email: contactInfo.email || caseData.user[0]?.email || 'Not provided',
       phone: contactInfo.phone || caseData.user[0]?.phone || 'Not provided',
       alternatePhone: contactInfo.alternatePhone || 'Not provided',
-      address: (currentAddress.street && currentAddress.street.trim()) ? 
+      address: (currentAddress.street && currentAddress.street.trim()) ?
         `${currentAddress.street}, ${currentAddress.city}, ${currentAddress.state} ${currentAddress.postalCode}`.replace(/,\s*,/g, ',').replace(/^,\s*|,\s*$/g, '') :
         caseData.user[0]?.address || 'Address not provided',
-      dateOfBirth: (personalInfo.dateOfBirth && personalInfo.dateOfBirth.trim()) || 
+      dateOfBirth: (personalInfo.dateOfBirth && personalInfo.dateOfBirth.trim()) ||
         caseData.user[0]?.dateOfBirth || 'Date of birth not provided',
       gender: (personalInfo.gender && personalInfo.gender.trim()) || 'Not provided',
       nationality: (personalInfo.nationality && personalInfo.nationality.trim()) || 'Not provided',
@@ -441,7 +442,7 @@ router.get('/cases/:caseId', async (req, res) => {
         relation: contactInfo.emergencyContact.relation || 'Not provided'
       } : null
     };
-    
+
     // DEBUG: Log the final victim details
     console.log('Final Victim Details:', JSON.stringify(victimDetails, null, 2));
 
@@ -460,11 +461,11 @@ router.get('/cases/:caseId', async (req, res) => {
         location: caseData.location,
         contactInfo: caseData.contactInfo,
         evidence: evidence.map(ev => ({
-          id: ev._id,
-          name: ev.fileName,
-          type: ev.fileType,
-          size: ev.fileSize,
-          url: ev.fileUrl,
+          id: ev.id || ev._id,
+          name: ev.name,
+          type: ev.type,
+          size: ev.size,
+          url: ev.url,
           uploadedAt: ev.uploadedAt
         })),
         status: caseData.status,
@@ -476,11 +477,11 @@ router.get('/cases/:caseId', async (req, res) => {
         timeline: (() => {
           // Get email status from case data
           const emailStatus = caseData.emailStatus || {};
-          
+
           // Define the correct timeline order
           const timelineOrder = [
             'report_submitted',
-            'information_verified', 
+            'information_verified',
             'crpc_generated',
             'emails_sent',
             'under_review',
@@ -488,7 +489,7 @@ router.get('/cases/:caseId', async (req, res) => {
             'case_resolved',
             'case_closed'
           ];
-          
+
           // Generate clean timeline with proper ordering
           const baseTimeline = [
             {
@@ -581,7 +582,7 @@ router.get('/cases/:caseId', async (req, res) => {
           // If we have database timeline entries, merge them intelligently
           if (timeline.length > 0) {
             const uniqueStages = new Map();
-            
+
             // Add database entries first (they have actual timestamps)
             timeline.forEach(entry => {
               if (entry.stage && !uniqueStages.has(entry.stage)) {
@@ -619,7 +620,7 @@ router.get('/cases/:caseId', async (req, res) => {
                 } else if (baseEntry.stage === 'case_closed') {
                   status = caseData.status === 'closed' ? 'completed' : 'pending';
                 }
-                
+
                 uniqueStages.set(baseEntry.stage, {
                   ...baseEntry,
                   status: status
@@ -758,7 +759,7 @@ router.get('/analytics/cases', async (req, res) => {
       db.collection('cases').countDocuments({
         createdAt: { $gte: startDate }
       }),
-      
+
       // Total amount in period
       db.collection('cases').aggregate([
         {
@@ -768,7 +769,7 @@ router.get('/analytics/cases', async (req, res) => {
           $group: { _id: null, total: { $sum: '$amount' } }
         }
       ]).toArray(),
-      
+
       // Status breakdown
       db.collection('cases').aggregate([
         {
@@ -782,7 +783,7 @@ router.get('/analytics/cases', async (req, res) => {
           }
         }
       ]).toArray(),
-      
+
       // Case type breakdown
       db.collection('cases').aggregate([
         {
@@ -796,7 +797,7 @@ router.get('/analytics/cases', async (req, res) => {
           }
         }
       ]).toArray(),
-      
+
       // Daily statistics
       db.collection('cases').aggregate([
         {
@@ -815,7 +816,7 @@ router.get('/analytics/cases', async (req, res) => {
         },
         { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } }
       ]).toArray(),
-      
+
       // Priority breakdown
       db.collection('cases').aggregate([
         {
@@ -878,10 +879,10 @@ router.get('/analytics/cases', async (req, res) => {
 router.get('/process-flow', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    
+
     // Get process flow from database or return default
     let processFlow = await db.collection('processFlow').findOne({ type: 'default' });
-    
+
     if (!processFlow) {
       // Create default process flow
       const defaultFlow = {
@@ -899,16 +900,16 @@ router.get('/process-flow', async (req, res) => {
         createdAt: new Date(),
         updatedAt: new Date()
       };
-      
+
       await db.collection('processFlow').insertOne(defaultFlow);
       processFlow = defaultFlow;
     }
-    
+
     res.json({
       success: true,
       processFlow: processFlow.steps.sort((a, b) => a.order - b.order)
     });
-    
+
   } catch (error) {
     console.error('Get process flow error:', error);
     res.status(500).json({
@@ -923,14 +924,14 @@ router.put('/process-flow', async (req, res) => {
   try {
     const db = req.app.locals.db;
     const { steps } = req.body;
-    
+
     if (!Array.isArray(steps) || steps.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Invalid process flow steps'
       });
     }
-    
+
     // Validate steps
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
@@ -942,7 +943,7 @@ router.put('/process-flow', async (req, res) => {
       }
       step.order = i + 1;
     }
-    
+
     // Update or create process flow
     const result = await db.collection('processFlow').updateOne(
       { type: 'default' },
@@ -954,13 +955,13 @@ router.put('/process-flow', async (req, res) => {
       },
       { upsert: true }
     );
-    
+
     res.json({
       success: true,
       message: 'Process flow updated successfully',
       processFlow: steps
     });
-    
+
   } catch (error) {
     console.error('Update process flow error:', error);
     res.status(500).json({
@@ -977,30 +978,30 @@ router.put('/cases/:caseId/status', async (req, res) => {
     const { caseId } = req.params;
     const { status, description, assignedTo } = req.body;
     const updatedBy = req.user.userId;
-    
+
     // Get current process flow
     const processFlow = await db.collection('processFlow').findOne({ type: 'default' });
     const validStatuses = processFlow ? processFlow.steps.map(s => s.id) : ['submitted', 'under_review', 'investigating', 'resolved', 'closed'];
-    
+
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid status. Must be one of: ' + validStatuses.join(', ')
       });
     }
-    
+
     // Get case
     const caseDoc = await db.collection('cases').findOne({
       $or: [{ _id: new ObjectId(caseId) }, { caseId: caseId }]
     });
-    
+
     if (!caseDoc) {
       return res.status(404).json({
         success: false,
         message: 'Case not found'
       });
     }
-    
+
     // Create timeline entry
     const timelineEntry = {
       status: status,
@@ -1008,33 +1009,33 @@ router.put('/cases/:caseId/status', async (req, res) => {
       description: description || `Status changed to ${status}`,
       updatedBy: updatedBy
     };
-    
+
     // Update case
     const updateData = {
       status: status,
       updatedAt: new Date()
     };
-    
+
     if (assignedTo) {
       updateData.assignedTo = assignedTo;
     }
-    
+
     const result = await db.collection('cases').findOneAndUpdate(
       { $or: [{ _id: new ObjectId(caseId) }, { caseId: caseId }] },
-      { 
-        $set: updateData, 
-        $push: { timeline: timelineEntry } 
+      {
+        $set: updateData,
+        $push: { timeline: timelineEntry }
       },
       { returnDocument: 'after' }
     );
-    
+
     if (!result) {
       return res.status(404).json({
         success: false,
         message: 'Case not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: 'Case status updated successfully',
@@ -1046,7 +1047,7 @@ router.put('/cases/:caseId/status', async (req, res) => {
         timeline: result.timeline
       }
     });
-    
+
   } catch (error) {
     console.error('Update case status error:', error);
     res.status(500).json({
@@ -1060,7 +1061,7 @@ router.put('/cases/:caseId/status', async (req, res) => {
 router.get('/dashboard', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    
+
     // Get comprehensive dashboard data
     const [
       totalUsers,
@@ -1105,7 +1106,7 @@ router.get('/dashboard', async (req, res) => {
         }
       ]).toArray()
     ]);
-    
+
     // Get case count for users
     const usersWithCaseCount = await Promise.all(
       users.map(async (user) => {
@@ -1121,7 +1122,7 @@ router.get('/dashboard', async (req, res) => {
         };
       })
     );
-    
+
     res.json({
       success: true,
       data: {
@@ -1148,7 +1149,7 @@ router.get('/dashboard', async (req, res) => {
         }, {})
       }
     });
-    
+
   } catch (error) {
     console.error('Get admin dashboard error:', error);
     res.status(500).json({
@@ -1162,11 +1163,11 @@ router.get('/dashboard', async (req, res) => {
 router.get('/cases', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const { 
-      page = 1, 
-      limit = 10, 
-      status, 
-      priority, 
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      priority,
       search,
       sortBy = 'createdAt',
       sortOrder = 'desc'
@@ -1290,7 +1291,7 @@ router.get('/cases', async (req, res) => {
 router.get('/police-officers', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    
+
     // Get all users with police role
     const policeOfficers = await db.collection('users').find({
       role: 'police'
@@ -1302,7 +1303,7 @@ router.get('/police-officers', async (req, res) => {
       department: 1,
       createdAt: 1
     }).toArray();
-    
+
     res.json({
       success: true,
       data: policeOfficers
@@ -1324,7 +1325,7 @@ router.get('/email-config', async (req, res) => {
       banking: process.env.BANKING_EMAIL || 'banking@fraud.gov.in',
       nodal: process.env.NODAL_EMAIL || 'nodal@fraud.gov.in'
     };
-    
+
     res.json({
       success: true,
       data: emailConfig
@@ -1345,25 +1346,25 @@ router.put('/cases/:caseId/email-status', async (req, res) => {
     const { caseId } = req.params;
     const { emailStatus } = req.body;
     const updatedBy = req.user.userId;
-    
+
     // Update case email status
     const result = await db.collection('cases').updateOne(
       { $or: [{ _id: new ObjectId(caseId) }, { caseId: caseId }] },
-      { 
-        $set: { 
+      {
+        $set: {
           emailStatus: emailStatus,
           updatedAt: new Date()
         }
       }
     );
-    
+
     if (result.matchedCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Case not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: 'Email status updated successfully'
@@ -1384,12 +1385,12 @@ router.put('/cases/:caseId/assign-police', async (req, res) => {
     const { caseId } = req.params;
     const { policeId, policeName } = req.body;
     const adminId = req.user.userId;
-    
+
     // Update case assignment
     const result = await db.collection('cases').updateOne(
       { $or: [{ _id: new ObjectId(caseId) }, { caseId: caseId }] },
-      { 
-        $set: { 
+      {
+        $set: {
           assignedTo: policeId,
           assignedToName: policeName,
           assignedAt: new Date(),
@@ -1398,14 +1399,14 @@ router.put('/cases/:caseId/assign-police', async (req, res) => {
         }
       }
     );
-    
+
     if (result.matchedCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Case not found'
       });
     }
-    
+
     // Add timeline entry
     await db.collection('case_timeline').insertOne({
       caseId: new ObjectId(caseId),
@@ -1425,7 +1426,7 @@ router.put('/cases/:caseId/assign-police', async (req, res) => {
         assignedToName: policeName
       }
     });
-    
+
     res.json({
       success: true,
       message: 'Case assigned to police officer successfully'
@@ -1444,62 +1445,62 @@ router.get('/cases/:caseId/crpc/download', async (req, res) => {
   try {
     const db = req.app.locals.db;
     const { caseId } = req.params;
-    
+
     // Get case data
     const caseData = await db.collection('cases').findOne({
       $or: [{ _id: new ObjectId(caseId) }, { caseId: caseId }]
     });
-    
+
     if (!caseData) {
       return res.status(404).json({
         success: false,
         message: 'Case not found'
       });
     }
-    
+
     // Get CRPC document
     const crpcDoc = await db.collection('crpc_documents').findOne({
       caseId: new ObjectId(caseId)
     });
-    
+
     if (!crpcDoc) {
       return res.status(404).json({
         success: false,
         message: 'CRPC document not found'
       });
     }
-    
+
     // Generate PDF content
     const PDFDocument = require('pdfkit');
     const doc = new PDFDocument();
-    
+
     // Set response headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="91CRPC_${crpcDoc.documentNumber}.pdf"`);
-    
+
     // Pipe PDF to response
     doc.pipe(res);
-    
+
     // Add content to PDF
     doc.fontSize(20).text('91 CrPC Document', 50, 50);
     doc.fontSize(16).text(`Document Number: ${crpcDoc.documentNumber}`, 50, 80);
     doc.fontSize(14).text(`Case ID: ${caseData.caseId}`, 50, 110);
     doc.fontSize(12).text(`Generated: ${new Date(crpcDoc.generatedAt).toLocaleString()}`, 50, 140);
-    
+
     doc.moveDown();
     doc.fontSize(16).text('Case Details:', 50, 180);
     doc.fontSize(12).text(`Case Type: ${caseData.caseType}`, 50, 210);
     doc.text(`Amount: ₹${caseData.amount?.toLocaleString() || '0'}`, 50, 230);
     doc.text(`Status: ${caseData.status}`, 50, 250);
-    
+
     doc.moveDown();
     doc.fontSize(16).text('91 CrPC Section Details:', 50, 290);
     doc.fontSize(12).text('This document is generated under Section 91 of the Code of Criminal Procedure, 1973.', 50, 320);
     doc.text('It authorizes the investigation officer to collect evidence and information', 50, 340);
     doc.text('related to the fraud case mentioned above.', 50, 360);
-    
+
     doc.end();
-    
+
   } catch (error) {
     console.error('Download CRPC error:', error);
     res.status(500).json({
@@ -1580,7 +1581,7 @@ router.post('/cases/:caseId/verify-information', async (req, res) => {
       'information_verified',
       'Information Verified',
       'completed',
-      scammerInfo ? 
+      scammerInfo ?
         `Scammer details verified and ${scammerInfo.isNew ? 'added to' : 'updated in'} database` :
         'Personal and contact details verified',
       { scammerInfo: scammerInfo?.scammerDetails },

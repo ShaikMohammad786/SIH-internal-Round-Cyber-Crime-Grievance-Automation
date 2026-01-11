@@ -107,8 +107,8 @@ async function verifyInformation(db, caseId, adminId, comment) {
   // Update case status
   await db.collection('cases').updateOne(
     { _id: new ObjectId(caseId) },
-    { 
-      $set: { 
+    {
+      $set: {
         status: 'verified',
         updatedAt: new Date()
       }
@@ -169,8 +169,8 @@ async function generateCrpc(db, caseId, adminId, comment) {
     // Update case status
     await db.collection('cases').updateOne(
       { _id: new ObjectId(caseId) },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'crpc_generated',
           crpcDocumentId: crpcResult.documentId,
           updatedAt: new Date()
@@ -191,15 +191,15 @@ async function generateCrpc(db, caseId, adminId, comment) {
       }
     });
 
-    return { 
-      stage: 'crpc_generated', 
+    return {
+      stage: 'crpc_generated',
       status: 'completed',
       documentId: crpcResult.documentId,
       message: '91 CrPC document generated successfully'
     };
   } catch (error) {
     console.error('Error generating CRPC:', error);
-    
+
     // Log failed action
     await db.collection('admin_actions').insertOne({
       caseId: new ObjectId(caseId),
@@ -212,7 +212,7 @@ async function generateCrpc(db, caseId, adminId, comment) {
         error: error.message
       }
     });
-    
+
     throw error;
   }
 }
@@ -228,7 +228,7 @@ async function sendEmails(db, caseId, adminId, comment) {
 
     // Get scammer details
     const scammerData = await db.collection('scammers').findOne({ caseId: new ObjectId(caseId) });
-    
+
     // Send emails to authorities
     const { sendEmailsToAuthorities } = require('../services/emailService');
     const emailResults = await sendEmailsToAuthorities(caseData, scammerData, {
@@ -236,6 +236,30 @@ async function sendEmails(db, caseId, adminId, comment) {
       banking: true,
       nodal: true
     });
+
+    // Log emails to sent_emails collection for the Communications tab
+    for (const [type, result] of Object.entries(emailResults)) {
+      try {
+        await db.collection('sent_emails').insertOne({
+          caseId: new ObjectId(caseId),
+          scammerId: scammerData?._id ? new ObjectId(scammerData._id) : null,
+          emailType: type,
+          subject: result.subject || 'No Subject',
+          content: result.content || 'No Content',
+          sentAt: new Date(),
+          sentBy: adminId, // Log the admin who sent it
+          status: result.success ? 'sent' : 'failed',
+          recipient: {
+            email: result.email,
+            department: type
+          },
+          error: result.error
+        });
+        console.log(`📝 Logged ${type} email to sent_emails from admin action`);
+      } catch (logError) {
+        console.error(`❌ Failed to log ${type} email from admin:`, logError);
+      }
+    }
 
     // Update email status in case
     const emailStatus = {
@@ -270,8 +294,8 @@ async function sendEmails(db, caseId, adminId, comment) {
     // Update case status and email status
     await db.collection('cases').updateOne(
       { _id: new ObjectId(caseId) },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'emails_sent',
           emailStatus: emailStatus,
           updatedAt: new Date()
@@ -291,8 +315,8 @@ async function sendEmails(db, caseId, adminId, comment) {
       }
     });
 
-    return { 
-      stage: 'emails_sent', 
+    return {
+      stage: 'emails_sent',
       status: 'emails_sent',
       emailStatus: emailStatus,
       emailResults: emailResults
@@ -307,21 +331,29 @@ async function sendEmails(db, caseId, adminId, comment) {
 async function updateCaseStatus(db, caseId, newStatus, adminId, comment) {
   // Map status to appropriate stage
   const statusToStageMap = {
-    'verified': 'information_verified',
+    'verified': 'verified',
+    'crpc_generated': 'crpc_generated',
+    'emails_sent': 'emails_sent',
+    'authorized': 'authorized',
+    'assigned_to_police': 'assigned_to_police',
     'under_review': 'under_review',
     'evidence_collected': 'evidence_collected',
-    'resolved': 'case_resolved',
-    'closed': 'case_closed'
+    'resolved': 'resolved',
+    'closed': 'closed'
   };
 
   const stage = statusToStageMap[newStatus] || 'under_review';
   const stageName = {
-    'information_verified': 'Information Verified',
-    'under_review': 'Under Review',
+    'verified': 'Information Verified',
+    'crpc_generated': '91 CrPC Generated',
+    'emails_sent': 'Authorities Notified',
+    'authorized': 'Case Authorized',
+    'assigned_to_police': 'Assigned to Police',
+    'under_review': 'Under Investigation',
     'evidence_collected': 'Evidence Collected',
-    'case_resolved': 'Case Resolved',
-    'case_closed': 'Case Closed'
-  }[stage] || 'Under Review';
+    'resolved': 'Case Resolved',
+    'closed': 'Case Closed'
+  }[stage] || 'Under Investigation';
 
   // Add timeline entry
   await db.collection('case_timeline').insertOne({
@@ -344,8 +376,8 @@ async function updateCaseStatus(db, caseId, newStatus, adminId, comment) {
   // Update case status
   await db.collection('cases').updateOne(
     { _id: new ObjectId(caseId) },
-    { 
-      $set: { 
+    {
+      $set: {
         status: newStatus,
         updatedAt: new Date()
       }
@@ -388,8 +420,8 @@ async function addEvidence(db, caseId, adminId, comment, metadata) {
   // Update case status
   await db.collection('cases').updateOne(
     { _id: new ObjectId(caseId) },
-    { 
-      $set: { 
+    {
+      $set: {
         status: 'evidence_collected',
         updatedAt: new Date()
       }
@@ -413,16 +445,16 @@ async function addEvidence(db, caseId, adminId, comment, metadata) {
 async function investigateScammer(db, caseId, adminId, comment) {
   // Get scammer details
   const caseDoc = await db.collection('cases').findOne({ _id: new ObjectId(caseId) });
-  const scammer = await db.collection('scammers').findOne({ 
-    cases: { $in: [caseDoc.caseId] } 
+  const scammer = await db.collection('scammers').findOne({
+    cases: { $in: [caseDoc.caseId] }
   });
 
   if (scammer) {
     // Update scammer status
     await db.collection('scammers').updateOne(
       { _id: scammer._id },
-      { 
-        $set: { 
+      {
+        $set: {
           status: 'under_investigation',
           updatedAt: new Date()
         }
@@ -483,8 +515,8 @@ async function resolveCase(db, caseId, adminId, comment) {
   // Update case status
   await db.collection('cases').updateOne(
     { _id: new ObjectId(caseId) },
-    { 
-      $set: { 
+    {
+      $set: {
         status: 'resolved',
         updatedAt: new Date()
       }
@@ -526,8 +558,8 @@ async function closeCase(db, caseId, adminId, comment) {
   // Update case status
   await db.collection('cases').updateOne(
     { _id: new ObjectId(caseId) },
-    { 
-      $set: { 
+    {
+      $set: {
         status: 'closed',
         updatedAt: new Date()
       }

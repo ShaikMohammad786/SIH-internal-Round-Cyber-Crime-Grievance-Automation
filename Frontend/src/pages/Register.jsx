@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authAPI } from "../utils/auth";
 import Header from "../components/Header";
-import "./Register.css";
+import { Mail, Lock, User, Phone, AlertCircle, Loader2 } from "lucide-react";
 
 const Register = () => {
   const navigate = useNavigate();
@@ -48,7 +48,6 @@ const Register = () => {
       });
 
       if (response.success) {
-        // Session is automatically created by authAPI.register
         navigate("/");
       } else {
         setError(response.message || "Registration failed");
@@ -61,87 +60,143 @@ const Register = () => {
   };
 
   return (
-    <div className="login-page">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       <Header />
 
-      <main className="login-main">
-        <div className="login-card">
-          <h1 className="title">Join Scam Reporter</h1>
-          <p className="subtitle">Create an account to report scams and protect your community</p>
+      <main className="flex flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
+        <div className="w-full max-w-md space-y-8">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Join Scam Reporter</h1>
+            <p className="mt-2 text-sm text-slate-600">
+              Create an account to report scams and protect your community
+            </p>
+          </div>
 
-          <div className="card-inner">
-            <h2 className="card-title">Sign Up</h2>
+          <div className="mt-8 rounded-2xl bg-white px-8 py-10 shadow-xl ring-1 ring-slate-200">
+            <h2 className="mb-6 text-xl font-semibold text-slate-800">Sign Up</h2>
 
-            {error && <div className="error-message">{error}</div>}
+            <form className="space-y-5" onSubmit={handleSubmit}>
+              {error && (
+                <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-700 ring-1 ring-red-200">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
 
-            <form className="form" onSubmit={handleSubmit}>
-              <label className="field">
-                <span className="label">Full Name</span>
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="Enter your full name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  required
-                />
-              </label>
-              
-              <label className="field">
-                <span className="label">Email Address</span>
-                <input
-                  type="email"
-                  name="email"
-                  placeholder="your@email.com"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                />
-              </label>
-              
-              <label className="field">
-                <span className="label">Phone Number</span>
-                <input
-                  type="tel"
-                  name="phone"
-                  placeholder="Enter your phone number"
-                  value={formData.phone}
-                  onChange={handleChange}
-                />
-              </label>
-              
-              <label className="field">
-                <span className="label">Password</span>
-                <input
-                  type="password"
-                  name="password"
-                  placeholder="Enter your password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  required
-                />
-              </label>
-              
-              <label className="field">
-                <span className="label">Confirm Password</span>
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  placeholder="Confirm your password"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  required
-                />
-              </label>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Full Name</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <User className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="Enter your full name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                    className="block w-full rounded-md border-0 py-2.5 pl-10 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+              </div>
 
-              <button type="submit" className="submit" disabled={loading}>
-                {loading ? "Creating Account..." : "Sign Up"}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Email Address</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Mail className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    type="email"
+                    name="email"
+                    placeholder="your@email.com"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    className="block w-full rounded-md border-0 py-2.5 pl-10 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Phone Number</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Phone className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    type="tel"
+                    name="phone"
+                    placeholder="Enter your phone number"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="block w-full rounded-md border-0 py-2.5 pl-10 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Lock className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    type="password"
+                    name="password"
+                    placeholder="Create a password (min 6 chars)"
+                    value={formData.password}
+                    onChange={handleChange}
+                    required
+                    className="block w-full rounded-md border-0 py-2.5 pl-10 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Confirm Password</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <Lock className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    type="password"
+                    name="confirmPassword"
+                    placeholder="Confirm your password"
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    required
+                    className="block w-full rounded-md border-0 py-2.5 pl-10 text-slate-900 ring-1 ring-inset ring-slate-300 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex w-full items-center justify-center rounded-md bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating Account...
+                  </>
+                ) : (
+                  "Sign Up"
+                )}
               </button>
-
-              <p className="signup">
-                Already have an account? <a className="link" href="#" onClick={() => navigate('/login')}>Sign in</a>
-              </p>
             </form>
+
+            <div className="mt-8 text-center text-sm text-slate-500">
+              Already have an account?{' '}
+              <button 
+                onClick={() => navigate('/login')}
+                className="font-semibold text-indigo-600 hover:text-indigo-500"
+              >
+                Sign in
+              </button>
+            </div>
           </div>
         </div>
       </main>
